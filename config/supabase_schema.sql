@@ -5,34 +5,34 @@ alter table if exists auth.users enable row level security;
 
 -- Create tenants table
 create table if not exists public.tenants (
-  id uuid default uuid_generate_v4() primary key,
+  id serial primary key,
   first_name text not null,
   last_name text not null,
   email text,
   phone text not null,
-  unit_id uuid not null,
+  unit_id integer not null references public.units(id),
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null
 );
 
 -- Create properties table
 create table if not exists public.properties (
-  id uuid default uuid_generate_v4() primary key,
+  id serial primary key,
   name text not null,
   address text not null,
   city text not null,
   province text not null,
   postal_code text not null,
-  landlord_id uuid not null,
+  landlord_id integer not null,
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null
 );
 
 -- Create units table
 create table if not exists public.units (
-  id uuid default uuid_generate_v4() primary key,
+  id serial primary key,
   unit_number text not null,
-  property_id uuid not null references public.properties(id),
+  property_id integer not null references public.properties(id),
   rent_amount numeric not null,
   rent_due_day integer not null,
   lease_start timestamp with time zone not null,

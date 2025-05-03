@@ -1,8 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
+import path from "path";
 import { logger } from "../utils/logger";
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
@@ -17,32 +18,32 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Define database types to match Supabase schema
 export interface Tenant {
-  id: string;
+  id: number;
   first_name: string;
   last_name: string;
   email: string;
   phone: string; // WhatsApp-enabled phone number
-  unit_id: string;
+  unit_id: number;
   created_at: string;
   updated_at: string;
 }
 
 export interface Property {
-  id: string;
+  id: number;
   name: string;
   address: string;
   city: string;
   province: string;
   postal_code: string;
-  landlord_id: string;
+  landlord_id: number;
   created_at: string;
   updated_at: string;
 }
 
 export interface Unit {
-  id: string;
+  id: number;
   unit_number: string;
-  property_id: string;
+  property_id: number;
   rent_amount: number;
   rent_due_day: number; // Day of month rent is due
   lease_start: string;

@@ -1,96 +1,101 @@
 import { useState, useEffect } from "react";
+import TenantForm from "../components/TenantForm";
+import Modal from "../components/Modal";
+import Button from "../components/Button";
+import { tenantsApi } from "../services/api.service";
 import "./Tenants.css";
 
+// Define tenant interface - this should match both your backend and form requirements
 interface Tenant {
-  id: string;
+  id?: number;
   first_name: string;
   last_name: string;
   email: string;
   phone: string;
-  unit_id: string;
+  unit_id: number | string;
   unit_number?: string;
   property_name?: string;
   rent_amount?: number;
   rent_due_day?: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 const Tenants = () => {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
+  const [apiLoading, setApiLoading] = useState<boolean>(false);
+
+  // Fetch tenants from the backend API
+  const fetchTenants = async () => {
+    setLoading(true);
+    try {
+      // Add type assertion to ensure API response matches our Tenant interface
+      const data = await tenantsApi.getAll() as Tenant[];
+      setTenants(data);
+      setError(null);
+    } catch (err: any) {
+      console.error("Error fetching tenants:", err);
+      setError(err.message || "Failed to fetch tenants. Please try again later.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    // In a real app, we would fetch this data from the API
-    // For now, we'll use mock data
-    const fetchTenants = async () => {
-      try {
-        setLoading(true);
-
-        // Simulate API call delay
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // Mock data
-        setTenants([
-          {
-            id: "1",
-            first_name: "John",
-            last_name: "Smith",
-            email: "john.smith@example.com",
-            phone: "+14165551234",
-            unit_id: "101",
-            unit_number: "101",
-            property_name: "Sunrise Apartments",
-            rent_amount: 1500,
-            rent_due_day: 1,
-          },
-          {
-            id: "2",
-            first_name: "Emma",
-            last_name: "Johnson",
-            email: "emma.johnson@example.com",
-            phone: "+14165555678",
-            unit_id: "102",
-            unit_number: "202",
-            property_name: "Sunrise Apartments",
-            rent_amount: 1700,
-            rent_due_day: 1,
-          },
-          {
-            id: "3",
-            first_name: "Michael",
-            last_name: "Williams",
-            email: "michael.williams@example.com",
-            phone: "+14165559012",
-            unit_id: "103",
-            unit_number: "303",
-            property_name: "Oakwood Residences",
-            rent_amount: 2000,
-            rent_due_day: 3,
-          },
-          {
-            id: "4",
-            first_name: "Olivia",
-            last_name: "Brown",
-            email: "olivia.brown@example.com",
-            phone: "+14165553456",
-            unit_id: "104",
-            unit_number: "404",
-            property_name: "Oakwood Residences",
-            rent_amount: 1850,
-            rent_due_day: 5,
-          },
-        ]);
-
-        setLoading(false);
-      } catch (err) {
-        console.log("Error fetching tenants:", err);
-        setError("Failed to fetch tenants. Please try again later.");
-        setLoading(false);
-      }
-    };
-
     fetchTenants();
   }, []);
+
+  // Open edit modal for a tenant
+  const handleEditTenant = (tenant: Tenant) => {
+    setSelectedTenant(tenant);
+    setIsModalOpen(true);
+  };
+
+  // Close the edit modal
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setSelectedTenant(null);
+  };
+
+  // Save tenant (create or update)
+  const handleSaveTenant = async (formData: Tenant) => {
+    setApiLoading(true);
+    try {
+      if (formData.id) {
+        // Update existing tenant
+        const updatedTenant = await tenantsApi.update(formData.id.toString(), formData) as Tenant;
+
+        // Update the tenant in the local state
+        setTenants(prevTenants =>
+          prevTenants.map(tenant =>
+            tenant.id === formData.id ? updatedTenant : tenant
+          )
+        );
+
+        console.log("Tenant updated successfully:", updatedTenant);
+      } else {
+        // Create new tenant
+        const newTenant = await tenantsApi.create(formData) as Tenant;
+
+        // Add the new tenant to the local state
+        setTenants(prevTenants => [...prevTenants, newTenant]);
+
+        console.log("Tenant created successfully:", newTenant);
+      }
+
+      // Close the modal after successful save
+      handleCloseModal();
+    } catch (err: any) {
+      console.error("Error saving tenant:", err);
+      setError(err.message || "Failed to save tenant. Please try again.");
+    } finally {
+      setApiLoading(false);
+    }
+  };
 
   // Format currency
   const formatCurrency = (amount: number) => {
@@ -112,7 +117,14 @@ const Tenants = () => {
     <div className="tenants-page">
       <header className="page-header">
         <h1>Tenants</h1>
-        <button className="btn btn-primary">Add Tenant</button>
+        <Button
+          onClick={() => {
+            setSelectedTenant(null); // Clear any selected tenant
+            setIsModalOpen(true); // Open modal for adding new tenant
+          }}
+        >
+          Add Tenant
+        </Button>
       </header>
 
       <div className="tenants-container">
@@ -141,7 +153,11 @@ const Tenants = () => {
                   <td>{tenant.rent_amount ? formatCurrency(tenant.rent_amount) : "-"}</td>
                   <td>{tenant.rent_due_day ? `${tenant.rent_due_day}${getDayOrdinal(tenant.rent_due_day)}` : "-"}</td>
                   <td className="actions-cell">
-                    <button className="btn-icon" title="Edit">✏️</button>
+                    <button
+                      className="btn-icon"
+                      title="Edit"
+                      onClick={() => handleEditTenant(tenant)}
+                    >✏️</button>
                     <button className="btn-icon" title="Send Notification">🔔</button>
                     <button className="btn-icon" title="View Payment History">💰</button>
                   </td>
@@ -151,6 +167,23 @@ const Tenants = () => {
           </table>
         </div>
       </div>
+
+      {/* Edit/Add Tenant Modal */}
+      {isModalOpen && (
+        <Modal
+          isOpen={isModalOpen}
+          onClose={handleCloseModal}
+          title={selectedTenant ? "Edit Tenant" : "Add New Tenant"}
+          size="lg"
+        >
+          <TenantForm
+            tenant={selectedTenant || undefined}
+            onSave={handleSaveTenant}
+            onCancel={handleCloseModal}
+            loading={apiLoading}
+          />
+        </Modal>
+      )}
     </div>
   );
 };

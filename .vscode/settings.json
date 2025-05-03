@@ -1,21 +1,17 @@
 {
-  "github.copilot.enable": {
-    "*": true
-  },
+  // Enable VS Code settings for this workspace
   "editor.formatOnSave": true,
   "editor.tabSize": 2,
-  "editor.insertSpaces": true,
-  "editor.detectIndentation": false,
-  "javascript.preferences.quoteStyle": "double",
-  "typescript.preferences.quoteStyle": "double",
-  "prettier.singleQuote": false,
-  "prettier.semi": true,
-  "prettier.tabWidth": 2,
-  "files.associations": {
-    "*.yml": "yaml",
-    "*.yaml": "yaml"
+  "files.exclude": {
+    "**/node_modules": true,
+    "**/dist": true
   },
-  "github.copilot.advanced": {
-    "rulesFile": "rules.yml"
-  }
+  // Enable rules and agent components for your workflow
+  "rules.enabled": true,
+  "agent.enabled": true,
+  // Additional recommended settings
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "eslint.enable": true,
+  "eslint.validate": ["javascript", "typescript", "typescriptreact"],
+  "files.autoSave": "onFocusChange"
 }

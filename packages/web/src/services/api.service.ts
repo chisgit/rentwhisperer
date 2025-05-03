@@ -3,7 +3,8 @@
  * This service handles all API calls to the backend
  */
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:3000/api";
+// In Vite, use import.meta.env instead of process.env
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 
 /**
  * Generic fetch wrapper with error handling
@@ -40,37 +41,48 @@ async function fetchApi<T>(
 
     // Check if response is empty
     const text = await response.text();
-    return text ? JSON.parse(text) : {};
+    return text ? JSON.parse(text) as T : {} as T;
   } catch (error) {
     console.log(`API Error for ${endpoint}:`, error);
     throw error;
   }
 }
 
+// Tenant interface
+export interface Tenant {
+  id?: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  unit_id: number | string;
+}
+
 // Tenant API functions
 export const tenantsApi = {
-  getAll: () => fetchApi("/tenants"),
-  getById: (id: string) => fetchApi(`/tenants/${id}`),
-  create: (data: any) => fetchApi("/tenants", {
+  getAll: () => fetchApi<Tenant[]>("/tenants"),
+  getById: (id: string) => fetchApi<Tenant>(`/tenants/${id}`),
+  create: (data: Tenant) => fetchApi<Tenant>("/tenants", {
     method: "POST",
     body: JSON.stringify(data)
   }),
-  update: (id: string, data: any) => fetchApi(`/tenants/${id}`, {
-    method: "PUT",
+  update: (id: string, data: Tenant) => fetchApi<Tenant>(`/tenants/${id}`, {
+    method: "PATCH",
     body: JSON.stringify(data)
-  })
+  }),
+  getAllUnits: () => fetchApi<any[]>("/tenants/units") // Add method to get all units
 };
 
 // Rent Payments API functions
 export const paymentsApi = {
-  getPending: () => fetchApi("/rent/pending"),
-  getByTenantId: (tenantId: string) => fetchApi(`/rent/tenant/${tenantId}`),
-  getById: (id: string) => fetchApi(`/rent/${id}`),
-  create: (data: any) => fetchApi("/rent", {
+  getPending: () => fetchApi<any[]>("/rent/pending"),
+  getByTenantId: (tenantId: string) => fetchApi<any[]>(`/rent/tenant/${tenantId}`),
+  getById: (id: string) => fetchApi<any>(`/rent/${id}`),
+  create: (data: any) => fetchApi<any>("/rent", {
     method: "POST",
     body: JSON.stringify(data)
   }),
-  updateStatus: (id: string, data: any) => fetchApi(`/rent/${id}`, {
+  updateStatus: (id: string, data: any) => fetchApi<any>(`/rent/${id}`, {
     method: "PUT",
     body: JSON.stringify(data)
   })
@@ -78,23 +90,23 @@ export const paymentsApi = {
 
 // Notifications API functions
 export const notificationsApi = {
-  getAll: () => fetchApi("/notifications"),
-  getByTenantId: (tenantId: string) => fetchApi(`/notifications/tenant/${tenantId}`),
-  send: (data: any) => fetchApi("/notifications/send", {
+  getAll: () => fetchApi<any[]>("/notifications"),
+  getByTenantId: (tenantId: string) => fetchApi<any[]>(`/notifications/tenant/${tenantId}`),
+  send: (data: any) => fetchApi<any>("/notifications/send", {
     method: "POST",
     body: JSON.stringify(data)
   }),
-  resend: (id: string) => fetchApi(`/notifications/resend/${id}`, {
+  resend: (id: string) => fetchApi<any>(`/notifications/resend/${id}`, {
     method: "POST"
   })
 };
 
 // Cron API functions - for triggering automated processes
 export const cronApi = {
-  triggerRentDue: () => fetchApi("/cron/due-rent"),
-  triggerLateRent: () => fetchApi("/cron/late-rent"),
-  triggerFormN4: () => fetchApi("/cron/form-n4"),
-  triggerFormL1: () => fetchApi("/cron/form-l1")
+  triggerRentDue: () => fetchApi<any>("/cron/due-rent"),
+  triggerLateRent: () => fetchApi<any>("/cron/late-rent"),
+  triggerFormN4: () => fetchApi<any>("/cron/form-n4"),
+  triggerFormL1: () => fetchApi<any>("/cron/form-l1")
 };
 
 // PDF API functions

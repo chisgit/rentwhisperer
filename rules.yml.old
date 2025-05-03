@@ -9,7 +9,7 @@ style:
     node: 20
     react: 18
 
-# Development Rules
+# VERY IMPORTANT Development Rules
 rules:
   - Never delete existing debug statements (console.log, logger.debug, etc.)
   - Maintain all existing behaviour; breaking changes are not acceptable
