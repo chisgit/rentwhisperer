@@ -20,7 +20,11 @@ export async function getAllTenants(): Promise<Tenant[]> {
           property_id,
           properties:property_id (
             id,
-            name
+            name,
+            address,
+            city,
+            province,
+            postal_code
           )
         )
       `);
@@ -36,6 +40,12 @@ export async function getAllTenants(): Promise<Tenant[]> {
       ...tenant,
       unit_number: tenant.units?.unit_number,
       property_name: tenant.units?.properties?.name,
+      property_address: tenant.units?.properties?.address,
+      property_city: tenant.units?.properties?.city,
+      property_province: tenant.units?.properties?.province,
+      property_postal_code: tenant.units?.properties?.postal_code,
+      full_address: tenant.units ?
+        `${tenant.units.properties?.address || ''}, ${tenant.units.properties?.city || ''}, ${tenant.units.properties?.province || ''} ${tenant.units.properties?.postal_code || ''}` : '',
       rent_amount: tenant.units?.rent_amount,
       rent_due_day: tenant.units?.rent_due_day,
     })) || [];
@@ -65,7 +75,11 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
           property_id,
           properties:property_id (
             id,
-            name
+            name,
+            address,
+            city,
+            province,
+            postal_code
           )
         )
       `)
@@ -85,6 +99,12 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
       ...data,
       unit_number: data.units?.unit_number,
       property_name: data.units?.properties?.name,
+      property_address: data.units?.properties?.address,
+      property_city: data.units?.properties?.city,
+      property_province: data.units?.properties?.province,
+      property_postal_code: data.units?.properties?.postal_code,
+      full_address: data.units ?
+        `${data.units.properties?.address || ''}, ${data.units.properties?.city || ''}, ${data.units.properties?.province || ''} ${data.units.properties?.postal_code || ''}` : '',
       rent_amount: data.units?.rent_amount,
       rent_due_day: data.units?.rent_due_day,
     };
@@ -129,9 +149,26 @@ export async function createTenant(tenantData: Omit<Tenant, "id" | "created_at" 
  */
 export async function updateTenant(id: string, tenantData: Partial<Tenant>): Promise<Tenant> {
   try {
+    // Remove derived property fields that don't exist in the database schema
+    const {
+      property_name,
+      property_address,
+      property_city,
+      property_province,
+      property_postal_code,
+      full_address,
+      unit_number,
+      rent_amount,
+      rent_due_day,
+      units, // Remove units from tenantData
+      ...validUpdateData
+    } = tenantData as any;
+
+    console.log(`Updating tenant ${id} with valid data:`, validUpdateData);
+
     const { data, error } = await supabase
       .from("tenants")
-      .update(tenantData)
+      .update(validUpdateData)
       .eq("id", id)
       .select()
       .single();

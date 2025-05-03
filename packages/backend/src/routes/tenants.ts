@@ -22,6 +22,23 @@ router.get("/", async (req, res) => {
 });
 
 /**
+ * Get all units
+ */
+router.get("/units", async (req, res) => {
+  try {
+    logger.debug("GET /api/tenants/units - Getting all units");
+    console.log("GET /api/tenants/units - Getting all units");
+
+    const units = await tenantService.getAllUnits();
+    res.json(units);
+  } catch (error) {
+    logger.error("Error getting units", error);
+    console.log("Error getting units", error);
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+/**
  * Get tenant by ID
  */
 router.get("/:id", async (req, res) => {
@@ -142,21 +159,6 @@ router.get("/diagnostic", async (req, res) => {
   }
 });
 
-/**
- * Get all units (for tenant form dropdowns)
- */
-router.get("/units", async (req, res) => {
-  try {
-    logger.debug("GET /api/tenants/units - Getting all units");
-    console.log("GET /api/tenants/units - Getting all units");
-
-    const units = await tenantService.getAllUnits();
-    res.json(units);
-  } catch (error) {
-    logger.error("Error getting units", error);
-    console.log("Error getting units", error);
-    res.status(500).json({ error: (error as Error).message });
-  }
-});
+// Removed duplicate route handler for /units
 
 export default router;

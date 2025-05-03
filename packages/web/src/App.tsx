@@ -5,6 +5,7 @@ import Payments from "./pages/Payments";
 import Notifications from "./pages/Notifications";
 import Layout from "./components/Layout";
 import "./App.css";
+console.log("App component loaded");
 
 function App() {
   return (
