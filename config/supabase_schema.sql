@@ -1,38 +1,40 @@
 -- Schema for Rent Whisperer Supabase Database
 
+-- Enable UUID extension
+create extension if not exists "uuid-ossp";
+
 -- Enable Row Level Security
 alter table if exists auth.users enable row level security;
 
--- Create tenants table
-create table if not exists public.tenants (
-  id serial primary key,
-  first_name text not null,
-  last_name text not null,
-  email text,
-  phone text not null,
-  unit_id integer not null references public.units(id),
+-- Create landlords table first (no dependencies)
+create table if not exists public.landlords (
+  id uuid default uuid_generate_v4() primary key,
+  user_id uuid references auth.users(id),
+  name text not null,
+  email text not null,
+  phone text,
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null
 );
 
--- Create properties table
+-- Create properties table (depends on landlords)
 create table if not exists public.properties (
-  id serial primary key,
+  id uuid default uuid_generate_v4() primary key,
   name text not null,
   address text not null,
   city text not null,
   province text not null,
   postal_code text not null,
-  landlord_id integer not null,
+  landlord_id uuid not null,
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null
 );
 
--- Create units table
+-- Create units table (depends on properties)
 create table if not exists public.units (
-  id serial primary key,
+  id uuid default uuid_generate_v4() primary key,
   unit_number text not null,
-  property_id integer not null references public.properties(id),
+  property_id uuid not null,
   rent_amount numeric not null,
   rent_due_day integer not null,
   lease_start timestamp with time zone not null,
@@ -41,14 +43,38 @@ create table if not exists public.units (
   updated_at timestamp with time zone default now() not null
 );
 
+-- Create tenants table (independent entity)
+create table if not exists public.tenants (
+  id uuid default uuid_generate_v4() primary key,
+  first_name text not null,
+  last_name text not null,
+  email text,
+  phone text not null,
+  created_at timestamp with time zone default now() not null,
+  updated_at timestamp with time zone default now() not null
+);
+
+-- Create tenant_unit junction table for M:N relationship
+create table if not exists public.tenant_units (
+  tenant_id uuid not null,
+  unit_id uuid not null,
+  is_primary boolean not null default true,
+  lease_start timestamp with time zone not null,
+  lease_end timestamp with time zone,
+  created_at timestamp with time zone default now() not null,
+  updated_at timestamp with time zone default now() not null,
+  primary key (tenant_id, unit_id)
+);
+
 -- Create rent_payments table
 create table if not exists public.rent_payments (
   id uuid default uuid_generate_v4() primary key,
-  tenant_id uuid not null references public.tenants(id),
-  unit_id uuid not null references public.units(id),
+  tenant_id uuid not null,
+  unit_id uuid not null,
   amount numeric not null,
   due_date date not null,
   payment_date date,
+  is_late boolean default false,
   status text not null check (status in ('pending', 'paid', 'late', 'partial')),
   payment_method text,
   interac_request_link text,
@@ -83,28 +109,38 @@ create table if not exists public.incoming_messages (
   updated_at timestamp with time zone default now() not null
 );
 
--- Create landlords table
-create table if not exists public.landlords (
-  id uuid default uuid_generate_v4() primary key,
-  user_id uuid references auth.users(id),
-  business_name text,
-  first_name text not null,
-  last_name text not null,
-  email text not null,
-  phone text,
-  created_at timestamp with time zone default now() not null,
-  updated_at timestamp with time zone default now() not null
-);
-
--- Add foreign key constraint for landlords in properties
+-- Add foreign key constraints after all tables are created
+-- Property to landlord
 alter table public.properties
   add constraint properties_landlord_id_fkey
   foreign key (landlord_id)
   references public.landlords(id);
 
--- Add foreign key constraint for units in tenants
-alter table public.tenants
-  add constraint tenants_unit_id_fkey
+-- Units to properties
+alter table public.units
+  add constraint units_property_id_fkey
+  foreign key (property_id)
+  references public.properties(id);
+
+-- Tenant_units junction table constraints
+alter table public.tenant_units
+  add constraint tenant_units_tenant_id_fkey
+  foreign key (tenant_id)
+  references public.tenants(id) ON DELETE CASCADE;
+
+alter table public.tenant_units
+  add constraint tenant_units_unit_id_fkey
+  foreign key (unit_id)
+  references public.units(id);
+
+-- Rent payments constraints
+alter table public.rent_payments
+  add constraint rent_payments_tenant_id_fkey
+  foreign key (tenant_id)
+  references public.tenants(id);
+
+alter table public.rent_payments
+  add constraint rent_payments_unit_id_fkey
   foreign key (unit_id)
   references public.units(id);
 
@@ -130,6 +166,10 @@ create trigger update_units_updated_at
   before update on public.units
   for each row execute function public.update_updated_at_column();
 
+create trigger update_tenant_units_updated_at
+  before update on public.tenant_units
+  for each row execute function public.update_updated_at_column();
+
 create trigger update_rent_payments_updated_at
   before update on public.rent_payments
   for each row execute function public.update_updated_at_column();
@@ -147,7 +187,8 @@ create trigger update_landlords_updated_at
   for each row execute function public.update_updated_at_column();
 
 -- Create indexes for performance
-create index if not exists tenants_unit_id_idx on public.tenants(unit_id);
+create index if not exists tenant_units_tenant_id_idx on public.tenant_units(tenant_id);
+create index if not exists tenant_units_unit_id_idx on public.tenant_units(unit_id);
 create index if not exists units_property_id_idx on public.units(property_id);
 create index if not exists rent_payments_tenant_id_idx on public.rent_payments(tenant_id);
 create index if not exists rent_payments_unit_id_idx on public.rent_payments(unit_id);
@@ -197,6 +238,12 @@ alter table public.incoming_messages enable row level security;
 create policy "Enable read access for all users" on public.incoming_messages for select using (true);
 create policy "Enable insert for all users" on public.incoming_messages for insert with check (true);
 create policy "Enable update for authenticated users" on public.incoming_messages for update using (auth.role() = 'authenticated');
+
+-- Tenant Units policies
+alter table public.tenant_units enable row level security;
+create policy "Enable read access for all users" on public.tenant_units for select using (true);
+create policy "Enable insert for authenticated users" on public.tenant_units for insert with check (auth.role() = 'authenticated');
+create policy "Enable update for authenticated users" on public.tenant_units for update using (auth.role() = 'authenticated');
 
 -- Landlords policies
 alter table public.landlords enable row level security;

@@ -3,20 +3,10 @@ import { Input, Select } from "./FormElements";
 import Button from "./Button";
 import Card from "./Card";
 import { tenantsApi } from "../services/api.service";
+import Tenant from "../types/tenant";
 
-// Define the Tenant interface for type-checking
-interface Tenant {
-  id?: number;
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone: string;
-  unit_id: number | string;
-}
-
-// Define Unit interface
 interface Unit {
-  id: number;
+  id: string;
   unit_number: string;
   property_name: string;
   value: string;
@@ -53,14 +43,12 @@ const TenantForm: React.FC<TenantFormProps> = ({
   const [unitsLoading, setUnitsLoading] = useState<boolean>(true);
   const [unitsError, setUnitsError] = useState<string | null>(null);
 
-  // Fetch units from the API
   useEffect(() => {
     const fetchUnits = async () => {
       try {
         setUnitsLoading(true);
         const unitsData = await tenantsApi.getAllUnits() as Unit[];
 
-        // Convert to format needed for Select component
         const unitOptions = [
           { value: "", label: "Select a unit" },
           ...unitsData.map(unit => ({
@@ -74,7 +62,6 @@ const TenantForm: React.FC<TenantFormProps> = ({
       } catch (err: any) {
         console.error("Error fetching units:", err);
         setUnitsError("Failed to load units");
-        // Fallback options if API fails
         setUnits([
           { value: "", label: "Failed to load units" },
           { value: "1", label: "Unit 101" },
@@ -87,13 +74,11 @@ const TenantForm: React.FC<TenantFormProps> = ({
     fetchUnits();
   }, []);
 
-  // When tenant prop changes, update the form data
   useEffect(() => {
     if (tenant) {
       setFormData({
         ...tenant,
-        // Convert unit_id to string for the select input if needed
-        unit_id: tenant.unit_id.toString()
+        unit_id: tenant.unit_id ? tenant.unit_id.toString() : ""
       });
     }
   }, [tenant]);
@@ -110,13 +95,11 @@ const TenantForm: React.FC<TenantFormProps> = ({
     e.preventDefault();
     console.log("Form submitted with data:", formData);
 
-    // Convert unit_id back to a number before saving
     const dataToSave = {
       ...formData,
-      unit_id: formData.unit_id ? Number(formData.unit_id) : 0
+      unit_id: formData.unit_id || ""
     };
 
-    // Call the onSave prop to handle saving the data
     onSave(dataToSave);
   };
 
@@ -154,7 +137,6 @@ const TenantForm: React.FC<TenantFormProps> = ({
             required
             disabled={loading}
           />
-
           <Input
             label="Last Name"
             id="last_name"
@@ -181,7 +163,6 @@ const TenantForm: React.FC<TenantFormProps> = ({
             required
             disabled={loading}
           />
-
           <Input
             label="Phone"
             id="phone"
@@ -196,13 +177,12 @@ const TenantForm: React.FC<TenantFormProps> = ({
             disabled={loading}
           />
         </div>
-
         <div className="mt-4">
           <Select
             label="Assigned Unit"
             id="unit_id"
             name="unit_id"
-            value={formData.unit_id.toString()}
+            value={formData.unit_id || ""}
             onChange={handleChange}
             options={units}
             fullWidth

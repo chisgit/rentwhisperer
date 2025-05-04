@@ -4,22 +4,7 @@ import Modal from "../components/Modal";
 import Button from "../components/Button";
 import { tenantsApi } from "../services/api.service";
 import "./Tenants.css";
-
-// Define tenant interface - this should match both your backend and form requirements
-interface Tenant {
-  id?: number;
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone: string;
-  unit_id: number | string;
-  unit_number?: string;
-  property_name?: string;
-  rent_amount?: number;
-  rent_due_day?: number;
-  created_at?: string;
-  updated_at?: string;
-}
+import Tenant from "../types/tenant";
 
 const Tenants = () => {
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -166,6 +151,11 @@ const Tenants = () => {
             </tbody>
           </table>
         </div>
+        {tenants.length === 0 && !loading && (
+          <div className="no-tenants">
+            No tenants have been added yet. Click "Add Tenant" to get started.
+          </div>
+        )}
       </div>
 
       {/* Edit/Add Tenant Modal */}

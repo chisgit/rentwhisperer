@@ -3,6 +3,7 @@ import { rentService } from "../services/rent.service";
 import { logger } from "../utils/logger";
 import { validateRequest } from "../middleware/validation.middleware"; // Import validation middleware
 import { createRentPaymentSchema, updateRentPaymentSchema } from "../validators/rent.validator"; // Import rent schemas
+import { supabase } from "../config/database"; // Import supabase client
 
 const router = express.Router();
 
@@ -13,7 +14,7 @@ router.get("/", async (req, res) => {
   try {
     logger.debug("GET /api/rent - Getting all rent payments");
     console.log("GET /api/rent - Getting all rent payments");
-    
+
     const { data, error } = await supabase
       .from("rent_payments")
       .select(`
@@ -21,13 +22,13 @@ router.get("/", async (req, res) => {
         tenant:tenants(first_name, last_name),
         unit:units(unit_number, property_id)
       `);
-    
+
     if (error) {
       logger.error("Error fetching rent payments", error);
       console.log("Error fetching rent payments", error);
       throw new Error("Failed to fetch rent payments");
     }
-    
+
     res.json(data);
   } catch (error) {
     logger.error("Error getting rent payments", error);

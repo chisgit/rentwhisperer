@@ -4,7 +4,7 @@ type ButtonProps = {
   variant?: "primary" | "secondary" | "outline" | "text";
   size?: "small" | "medium" | "large";
   children: React.ReactNode;
-  onClick?: () => void;
+  onClick?: (e?: React.SyntheticEvent) => void;
   disabled?: boolean;
   className?: string;
   type?: "button" | "submit" | "reset";

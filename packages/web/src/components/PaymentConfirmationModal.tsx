@@ -71,7 +71,7 @@ const PaymentConfirmationModal: React.FC<PaymentModalProps> = ({
           <Button variant="text" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit}>Confirm Payment</Button>
+          <Button onClick={(e) => handleSubmit(e as React.FormEvent)}>Confirm Payment</Button>
         </div>
       }
     >

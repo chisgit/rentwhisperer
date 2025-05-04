@@ -4,7 +4,7 @@
  */
 
 // In Vite, use import.meta.env instead of process.env
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+const API_URL = `${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api`;
 
 /**
  * Generic fetch wrapper with error handling
@@ -50,12 +50,18 @@ async function fetchApi<T>(
 
 // Tenant interface
 export interface Tenant {
-  id?: number;
+  id?: string;
   first_name: string;
   last_name: string;
   email: string;
   phone: string;
-  unit_id: number | string;
+  unit_id?: string | null;
+  unit_number?: string | null;
+  property_name?: string | null;
+  property_address?: string | null;
+  full_address?: string;
+  rent_amount?: number | null;
+  rent_due_day?: number | null;
 }
 
 // Tenant API functions

@@ -46,7 +46,7 @@ export async function getAllTenants(): Promise<Tenant[]> {
       // Find primary unit relationship (if any)
       const primaryRelationship = tenant.tenant_units?.find((tu: any) => tu.is_primary) || tenant.tenant_units?.[0];
       const primaryUnit = primaryRelationship?.units;
-
+      
       return {
         ...tenant,
         unit_id: primaryUnit?.id || null,
@@ -56,7 +56,7 @@ export async function getAllTenants(): Promise<Tenant[]> {
         property_city: primaryUnit?.properties?.city || null,
         property_province: primaryUnit?.properties?.province || null,
         property_postal_code: primaryUnit?.properties?.postal_code || null,
-        full_address: primaryUnit?.properties ?
+        full_address: primaryUnit?.properties ? 
           `${primaryUnit.properties.address || ''}, ${primaryUnit.properties.city || ''}, ${primaryUnit.properties.province || ''} ${primaryUnit.properties.postal_code || ''}` : '',
         rent_amount: primaryUnit?.rent_amount || null,
         rent_due_day: primaryUnit?.rent_due_day || null,
@@ -120,7 +120,7 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
     // Find primary unit relationship (if any)
     const primaryRelationship = data.tenant_units?.find((tu: any) => tu.is_primary) || data.tenant_units?.[0];
     const primaryUnit = primaryRelationship?.units;
-
+    
     return {
       ...data,
       unit_id: primaryUnit?.id || null,
@@ -130,7 +130,7 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
       property_city: primaryUnit?.properties?.city || null,
       property_province: primaryUnit?.properties?.province || null,
       property_postal_code: primaryUnit?.properties?.postal_code || null,
-      full_address: primaryUnit?.properties ?
+      full_address: primaryUnit?.properties ? 
         `${primaryUnit.properties.address || ''}, ${primaryUnit.properties.city || ''}, ${primaryUnit.properties.province || ''} ${primaryUnit.properties.postal_code || ''}` : '',
       rent_amount: primaryUnit?.rent_amount || null,
       rent_due_day: primaryUnit?.rent_due_day || null,
@@ -202,10 +202,10 @@ export async function createTenant(tenantData: Omit<Tenant, "id" | "created_at" 
 export async function updateTenant(id: string, tenantData: Partial<Tenant>): Promise<Tenant> {
   try {
     console.log(`Updating tenant ${id} with data:`, tenantData);
-
+    
     // Extract unit_id from the tenant data
     const { unit_id, ...tenantFields } = tenantData;
-
+    
     // Update the tenant record
     const { data: updatedTenant, error: tenantError } = await supabase
       .from("tenants")
@@ -213,13 +213,13 @@ export async function updateTenant(id: string, tenantData: Partial<Tenant>): Pro
       .eq("id", id)
       .select()
       .single();
-
+      
     if (tenantError) {
       logger.error(`Error updating tenant:`, tenantError);
       console.log(`Error updating tenant:`, tenantError);
       throw new Error(`Failed to update tenant: ${JSON.stringify(tenantError)}`);
     }
-
+    
     // If unit_id is provided, update the tenant-unit relationship
     if (unit_id !== undefined) {
       // First check if there is an existing relationship
@@ -229,20 +229,20 @@ export async function updateTenant(id: string, tenantData: Partial<Tenant>): Pro
         .eq("tenant_id", id)
         .eq("is_primary", true)
         .maybeSingle();
-
+        
       if (fetchError) {
         logger.error(`Error fetching tenant-unit relationship:`, fetchError);
         console.log(`Error fetching tenant-unit relationship:`, fetchError);
         // Don't throw here, continue with the update
       }
-
+      
       if (existingRelation) {
         // Update existing relationship
         const { error: updateRelationError } = await supabase
           .from("tenant_units")
           .update({ unit_id })
           .eq("id", existingRelation.id);
-
+          
         if (updateRelationError) {
           logger.error(`Error updating tenant-unit relationship:`, updateRelationError);
           console.log(`Error updating tenant-unit relationship:`, updateRelationError);
@@ -256,11 +256,11 @@ export async function updateTenant(id: string, tenantData: Partial<Tenant>): Pro
           is_primary: true,
           lease_start: new Date().toISOString()
         };
-
+        
         const { error: insertRelationError } = await supabase
           .from("tenant_units")
           .insert([tenantUnitData]);
-
+          
         if (insertRelationError) {
           logger.error(`Error creating tenant-unit relationship:`, insertRelationError);
           console.log(`Error creating tenant-unit relationship:`, insertRelationError);
@@ -268,11 +268,11 @@ export async function updateTenant(id: string, tenantData: Partial<Tenant>): Pro
         }
       }
     }
-
+    
     if (!updatedTenant) {
       throw new Error("No data returned after updating tenant");
     }
-
+    
     // Return the updated tenant with the unit_id included
     return { ...updatedTenant, unit_id: unit_id || null };
   } catch (err) {
