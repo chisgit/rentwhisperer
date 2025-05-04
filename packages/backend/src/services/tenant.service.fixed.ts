@@ -1,0 +1,428 @@
+// Updated tenant service with fix for database update issues
+import { supabase, Tenant } from "../config/database";
+import { logger } from "../utils/logger";
+
+/**
+ * Get all tenants with unit and property information
+ */
+export async function getAllTenants(): Promise<Tenant[]> {
+  try {
+    console.log("Getting all tenants with unit and property info...");
+    // Join with tenant_units, units, and properties using the new schema structure
+    const { data, error } = await supabase
+      .from("tenants")
+      .select(`
+        *,
+        tenant_units!tenant_units_tenant_id_fkey (
+          unit_id,
+          is_primary,
+          lease_start,
+          lease_end,
+          rent_amount,
+          rent_due_day,
+          units:unit_id (
+            id, 
+            unit_number,
+            property_id,
+            properties:property_id (
+              id,
+              name,
+              address,
+              city,
+              province,
+              postal_code
+            )
+          )
+        )
+      `);
+
+    if (error) {
+      logger.error(`Error fetching tenants: ${error.message}`, error);
+      console.log(`Error fetching tenants:`, error);
+      throw new Error(`Failed to fetch tenants: ${error.message}`);
+    }
+
+    const tenantsWithRent = (data || []).map(tenant => {
+      const primaryRelationship = tenant.tenant_units?.find((tu: any) => tu.is_primary) || tenant.tenant_units?.[0];
+      return {
+        ...tenant,
+        rent_amount: primaryRelationship?.rent_amount,
+        rent_due_day: primaryRelationship?.rent_due_day,
+        unit_id: primaryRelationship?.unit_id,
+        unit_number: primaryRelationship?.units?.unit_number,
+        property_name: primaryRelationship?.units?.properties?.name,
+        property_address: primaryRelationship?.units?.properties?.address
+      };
+    });
+    return tenantsWithRent;
+  } catch (err) {
+    console.log("Exception in getAllTenants:", err);
+    throw err;
+  }
+}
+
+/**
+ * Get tenant by ID with unit and property information
+ */
+export async function getTenantById(id: string): Promise<Tenant | null> {
+  try {
+    // Join with tenant_units, units and properties to get additional information
+    const { data, error } = await supabase
+      .from("tenants")
+      .select(`
+        *,
+        tenant_units!tenant_units_tenant_id_fkey (
+          unit_id,
+          is_primary,
+          lease_start,
+          lease_end,
+          rent_amount,
+          rent_due_day,
+          units:unit_id (
+            id, 
+            unit_number,
+            property_id,
+            properties:property_id (
+              id,
+              name,
+              address,
+              city,
+              province,
+              postal_code
+            )
+          )
+        )
+      `)
+      .eq("id", id)
+      .single();
+
+    if (error) {
+      logger.error(`Error fetching tenant ${id}: ${error.message}`, error);
+      console.log(`Error fetching tenant ${id}:`, error);
+      if (error.code === 'PGRST116') {
+        // PGRST116 means no rows returned
+        return null;
+      }
+      throw new Error(`Failed to fetch tenant: ${error.message}`);
+    }
+
+    if (!data) return null;
+
+    // Find primary unit relationship (if any)
+    const primaryRelationship = data.tenant_units?.find((tu: any) => tu.is_primary) || data.tenant_units?.[0];
+
+    return {
+      ...data,
+      rent_amount: primaryRelationship?.rent_amount,
+      rent_due_day: primaryRelationship?.rent_due_day,
+      unit_id: primaryRelationship?.unit_id,
+      unit_number: primaryRelationship?.units?.unit_number,
+      property_name: primaryRelationship?.units?.properties?.name,
+      property_address: primaryRelationship?.units?.properties?.address
+    };
+  } catch (err) {
+    console.log("Exception in getTenantById:", err);
+    throw err;
+  }
+}
+
+/**
+ * Create a new tenant
+ */
+export async function createTenant(tenantData: Omit<Tenant, "id" | "created_at" | "updated_at" | "full_address">, landlordId: string): Promise<Tenant> {
+  try {
+    console.log("Creating tenant with data:", tenantData, "and landlordId:", landlordId);
+
+    // Extract unit_id from the tenant data
+    const { unit_id, rent_amount, rent_due_day, property_address, ...tenantFields } = tenantData;
+
+    // Verify that the unit belongs to the landlord
+    const { data: unit, error: unitError } = await supabase
+      .from("units")
+      .select("property_id")
+      .eq("id", unit_id)
+      .single();
+
+    if (unitError) {
+      logger.error(`Error fetching unit:`, unitError);
+      console.log(`Error fetching unit:`, unitError);
+      throw new Error(`Failed to fetch unit: ${JSON.stringify(unitError)}`);
+    }
+
+    if (!unit) {
+      throw new Error("Unit not found");
+    }
+
+    const { data: property, error: propertyError } = await supabase
+      .from("properties")
+      .select("landlord_id")
+      .eq("id", unit.property_id)
+      .single();
+
+    if (propertyError) {
+      logger.error(`Error fetching property:`, propertyError);
+      console.log(`Error fetching property:`, propertyError);
+      throw new Error(`Failed to fetch property: ${JSON.stringify(propertyError)}`);
+    }
+
+    if (!property) {
+      throw new Error("Property not found");
+    }
+
+    if (property.landlord_id !== landlordId) {
+      throw new Error("Unit does not belong to the specified landlord");
+    }
+
+    // First, insert the tenant record
+    const { data: tenant, error: tenantError } = await supabase
+      .from("tenants")
+      .insert([tenantFields])
+      .select()
+      .maybeSingle();
+
+    if (tenantError) {
+      logger.error(`Error creating tenant:`, tenantError);
+      console.log(`Error creating tenant:`, tenantError);
+      throw new Error(`Failed to create tenant: ${JSON.stringify(tenantError)}`);
+    }
+
+    if (!tenant) {
+      throw new Error("No data returned after creating tenant");
+    }
+
+    // If unit_id is provided, create the tenant-unit relationship
+    if (unit_id) {
+      const tenantUnitData = {
+        tenant_id: tenant.id,
+        unit_id: unit_id,
+        is_primary: true,
+        lease_start: new Date().toISOString(),
+        rent_amount: rent_amount || 0,
+        rent_due_day: rent_due_day || 1
+      };
+
+      const { error: relationError } = await supabase
+        .from("tenant_units")
+        .insert([tenantUnitData]);
+
+      if (relationError) {
+        logger.error(`Error creating tenant-unit relationship:`, relationError);
+        console.log(`Error creating tenant-unit relationship:`, relationError);
+        // Don't throw here, as the tenant was already created
+      }
+    }
+
+    // Return the created tenant with the unit_id included
+    return { ...tenant, unit_id, rent_amount, rent_due_day };
+  } catch (err) {
+    console.log("Exception in createTenant:", err);
+    throw err;
+  }
+}
+
+/**
+ * Update an existing tenant
+ * This version specifically fixes the database update issues
+ */
+export async function updateTenant(id: string, tenantData: Partial<Tenant>): Promise<Tenant> {
+  try {
+    console.log(`Updating tenant ${id} with data:`, tenantData);
+
+    // Extract fields from the tenant data
+    const { unit_id, rent_amount, rent_due_day, tenant_units, property_name, property_address, unit_number, ...tenantFields } = tenantData as any;
+    
+    // Ensure property-related fields are not sent to the tenants table
+    delete tenantFields.property_name;
+    delete tenantFields.property_address;
+    delete tenantFields.unit_number;
+    
+    console.log(`Updating tenant table with fields:`, tenantFields);
+
+    // Store the tenant data we're trying to update for later return
+    const updatedFields = {
+      ...tenantFields,
+      rent_amount,
+      rent_due_day,
+      unit_id
+    };
+
+    // 1. First update the basic tenant information in the tenants table
+    // IMPORTANT: Using upsert with onConflict to ensure the update works
+    if (Object.keys(tenantFields).length > 0) {
+      const { data: updatedTenant, error: tenantError } = await supabase
+        .from("tenants")
+        .upsert([{ id, ...tenantFields }], { onConflict: 'id' })
+        .select();
+
+      console.log(`Result from tenant table upsert:`, updatedTenant);
+
+      if (tenantError) {
+        logger.error(`Error updating tenant:`, tenantError);
+        console.log(`Error updating tenant:`, tenantError);
+        throw new Error(`Failed to update tenant: ${JSON.stringify(tenantError)}`);
+      }
+    }
+
+    // 2. Now handle the tenant-unit relationship if needed
+    if (unit_id !== undefined || rent_amount !== undefined || rent_due_day !== undefined) {
+      // First check if there are any existing relationships
+      const { data: existingRelations, error: fetchError } = await supabase
+        .from("tenant_units")
+        .select("*")
+        .eq("tenant_id", id);
+
+      if (fetchError) {
+        logger.error(`Error fetching tenant-unit relationship:`, fetchError);
+        console.log(`Error fetching tenant-unit relationship:`, fetchError);
+        // Continue to try the update
+      } else {
+        console.log(`Existing tenant-unit relationships:`, existingRelations);
+      }
+
+      // Find the primary relationship if it exists
+      const primaryRelationship = existingRelations?.find(rel => rel.is_primary === true);
+      console.log(`Found existing primary relationship:`, primaryRelationship);
+
+      if (primaryRelationship) {
+        // Build update object with only the fields that were provided
+        const updateData: any = {};
+        if (unit_id !== undefined) updateData.unit_id = unit_id;
+        if (rent_amount !== undefined) updateData.rent_amount = rent_amount;
+        if (rent_due_day !== undefined) updateData.rent_due_day = rent_due_day;
+
+        console.log(`Updating tenant-unit relationship with data:`, updateData);
+        
+        if (Object.keys(updateData).length > 0) {
+          // Using upsert instead of update to ensure it works
+          const { data: updatedRelation, error: updateRelationError } = await supabase
+            .from("tenant_units")
+            .upsert([{
+              tenant_id: id,
+              unit_id: primaryRelationship.unit_id,
+              ...updateData
+            }], { 
+              onConflict: 'tenant_id,unit_id'
+            })
+            .select();
+
+          if (updateRelationError) {
+            logger.error(`Error updating tenant-unit relationship:`, updateRelationError);
+            console.log(`Error updating tenant-unit relationship:`, updateRelationError);
+          } else {
+            console.log(`Successfully updated tenant-unit relationship:`, updatedRelation);
+          }
+        }
+      } else if (unit_id) {
+        // Create new relationship if there's a unit_id provided
+        const tenantUnitData = {
+          tenant_id: id,
+          unit_id: unit_id,
+          is_primary: true,
+          lease_start: new Date().toISOString(),
+          rent_amount: rent_amount ?? 0, // Use nullish coalescing
+          rent_due_day: rent_due_day ?? 1 // Use nullish coalescing
+        };
+
+        console.log(`Creating new tenant-unit relationship with data:`, tenantUnitData);
+        
+        const { data: insertedRelation, error: insertRelationError } = await supabase
+          .from("tenant_units")
+          .insert([tenantUnitData])
+          .select();
+
+        if (insertRelationError) {
+          logger.error(`Error creating tenant-unit relationship:`, insertRelationError);
+          console.log(`Error creating tenant-unit relationship:`, insertRelationError);
+        } else {
+          console.log(`Successfully created tenant-unit relationship:`, insertedRelation);
+        }
+      }
+    }
+    
+    // Construct a merged object with our updates and what's in the database
+    const finalTenant = {
+      id,
+      ...updatedFields,
+      unit_number,
+      property_name,
+      property_address
+    };
+    
+    console.log(`Final tenant data to return:`, finalTenant);
+    
+    return finalTenant;
+  } catch (err) {
+    console.log("Exception in updateTenant:", err);
+    throw err;
+  }
+}
+
+export async function assignTenantToUnit(tenantId: string, unitId: string, leaseStart?: string, leaseEnd?: string): Promise<void> {
+  try {
+    const tenantUnitData = {
+      tenant_id: tenantId,
+      unit_id: unitId,
+      is_primary: true,
+      lease_start: leaseStart || new Date().toISOString(),
+      lease_end: leaseEnd || null,
+      rent_amount: 0, // Default value
+      rent_due_day: 1  // Default value
+    };
+    
+    const { error } = await supabase
+      .from("tenant_units")
+      .insert([tenantUnitData]);
+      
+    if (error) {
+      logger.error(`Error assigning tenant to unit: ${error.message}`, error);
+      throw new Error(`Failed to assign tenant to unit: ${error.message}`);
+    }
+  } catch (err) {
+    console.log("Error in assignTenantToUnit:", err);
+    throw err;
+  }
+}
+
+// Export as a single service object for convenience
+export const tenantService = {
+  getAllTenants,
+  getTenantById,
+  createTenant,
+  updateTenant,
+  assignTenantToUnit,
+  getAllUnits: async () => {
+    try {
+      console.log("Getting all units with property info...");
+      // Get units with property information joined
+      const { data, error } = await supabase
+        .from("units")
+        .select(`
+          *,
+          properties:property_id (*)
+        `);
+  
+      if (error) {
+        logger.error(`Error fetching units: ${error.message}`, error);
+        console.log(`Error fetching units:`, error);
+        throw new Error(`Failed to fetch units: ${error.message}`);
+      }
+  
+      // Transform the data to include a display label for the dropdown
+      const formattedUnits = data?.map(unit => ({
+        id: unit.id,
+        unit_number: unit.unit_number,
+        rent_amount: unit.rent_amount,
+        rent_due_day: unit.rent_due_day,
+        property_name: unit.properties?.name || 'Unknown Property',
+        property_id: unit.property_id,
+        value: unit.id,
+        label: `${unit.unit_number} - ${unit.properties?.name || 'Unknown Property'}`
+      }));
+  
+      return formattedUnits;
+    } catch (err) {
+      console.log("Exception in getAllUnits:", err);
+      throw err;
+    }
+  }
+};

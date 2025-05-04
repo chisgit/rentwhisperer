@@ -63,6 +63,7 @@ router.get("/:id", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { first_name, last_name, email, phone, unit_id } = req.body;
+    const landlordId = "322128c3-eba9-40b7-a8e9-9a35e498197a"; // Hardcoded landlord ID
 
     logger.debug("POST /api/tenants - Creating new tenant");
     console.log("POST /api/tenants - Creating new tenant:", first_name, last_name);
@@ -72,9 +73,7 @@ router.post("/", async (req, res) => {
       return res.status(400).json({
         error: "Missing required fields: first_name, last_name, phone, and unit_id are required"
       });
-    }
-
-    const tenant = await tenantService.createTenant({
+    } const tenant = await tenantService.createTenant({
       first_name,
       last_name,
       email,
@@ -97,14 +96,15 @@ router.patch("/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
-
     logger.debug(`PATCH /api/tenants/${id} - Updating tenant`);
-    console.log(`PATCH /api/tenants/${id} - Updating tenant`);
+    console.log(`PATCH /api/tenants/${id} - Updating tenant with data:`, updates);
+    console.log(`PATCH /api/tenants/${id} - Request body raw:`, JSON.stringify(req.body));    // Remove fields that shouldn't be updated directly
+    const { id: _, created_at, updated_at, tenant_units, ...validUpdates } = updates;
 
-    // Remove fields that shouldn't be updated directly
-    const { id: _, created_at, updated_at, ...validUpdates } = updates;
+    console.log(`Cleaned update data for tenant ${id}:`, validUpdates);
 
     const tenant = await tenantService.updateTenant(id, validUpdates);
+    console.log(`Sending updated tenant back to client:`, tenant);
     res.json(tenant);
   } catch (error) {
     logger.error("Error updating tenant", error);

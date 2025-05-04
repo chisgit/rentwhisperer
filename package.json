@@ -1,23 +1,37 @@
 {
-    "name":  "rent-whisperer",
-    "version":  "0.1.0",
-    "private":  true,
-    "workspaces":  [
-                       "packages/*"
-                   ],    "scripts":  {
-                    "dev":  "concurrently \"npm run dev:backend\" \"npm run dev:pdf-service\"",
-                    "dev:backend":  "npm run dev --workspace=@rent-whisperer/backend",
-                    "dev:pdf-service":  "npm run dev --workspace=@rent-whisperer/pdf-service",
-                    "dev:web":  "npm run dev --workspace=@rent-whisperer/web",
-                    "dev:all":  "concurrently \"npm run dev:backend\" \"npm run dev:pdf-service\" \"npm run dev:web\"",
-                    "build":  "npm run build --workspaces",
-                    "test":  "npm test --workspaces",
-                    "lint":  "npm run lint --workspaces"
-                },
-    "engines":  {
-                    "node":  "\u003e=20.0.0"
-                },
-    "devDependencies":  {
-                            "concurrently":  "^8.2.2"
-                        }
+    "name": "rent-whisperer",
+    "version": "0.1.0",
+    "private": true,
+    "workspaces": [
+        "packages/*"
+    ],
+    "scripts": {
+        "dev": "concurrently \"npm run dev:backend\" \"npm run dev:pdf-service\"",
+        "dev:backend": "npm run dev --workspace=@rent-whisperer/backend",
+        "dev:pdf-service": "npm run dev --workspace=@rent-whisperer/pdf-service",
+        "dev:web": "npm run dev --workspace=@rent-whisperer/web",
+        "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:pdf-service\" \"npm run dev:web\"",
+        "build": "npm run build --workspaces",
+        "test": "npm test --workspaces",
+        "lint": "npm run lint --workspaces",
+        "apply-schema": "npm run apply-schema --workspace=@rent-whisperer/backend",
+        "reset-database": "npm run reset-database --workspace=@rent-whisperer/backend",
+        "reset-database-js": "node reset-database-js.js",
+        "drop-tables": "node drop-tables.js",
+        "reset-db-rest": "node reset-db-rest.js",
+        "reset-db-simple": "node packages/backend/src/scripts/reset-db-rest-simple.js",
+        "smart-reset-db": "powershell -ExecutionPolicy Bypass -File .\\packages\\backend\\src\\scripts\\Smart-Reset-Database.ps1",
+        "reset-db-axios": "node reset-db-axios.js",
+        "reset-db-simple": "node reset-db-simple.js"
+    },
+    "engines": {
+        "node": ">=20.0.0"
+    },
+    "devDependencies": {
+        "concurrently": "^8.2.2"
+    },
+    "dependencies": {
+        "axios": "^1.9.0",
+        "node-fetch": "^3.3.2"
+    }
 }

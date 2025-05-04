@@ -11,12 +11,11 @@ style:
 
 # VERY IMPORTANT Development Rules
 rules:
+  - Use PowerShell for windows syntax for terminal commands
   - Never delete existing debug statements (console.log, logger.debug, etc.)
   - Maintain all existing behaviour; breaking changes are not acceptable
   - Each PR = one small, independent, test-covered slice of value
   - Double quotes for strings
-  - 2-space indentation
-  - Use PowerShell syntax for terminal commands on Windows
   - Follow Tailwind CSS conventions for styling when possible
 # Architecture Constraints
 architecture:

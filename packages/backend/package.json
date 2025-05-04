@@ -8,7 +8,9 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "jest",
-    "lint": "eslint . --ext .ts"
+    "lint": "eslint . --ext .ts",
+    "apply-schema": "node src/scripts/apply-master-schema.js",
+    "reset-database": "node src/scripts/reset-database.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.38.5",
@@ -19,6 +21,7 @@
     "helmet": "^7.1.0",
     "joi": "^17.11.0",
     "morgan": "^1.10.0",
+    "node-fetch": "^3.3.2",
     "pino": "^8.16.2",
     "pino-pretty": "^10.2.3"
   },

@@ -157,7 +157,7 @@ async function seedDatabase() {
 
     const { data: tenantUnits, error: tenantUnitsError } = await supabase
       .from("tenant_units")
-      .insert(tenantUnitsData)
+      .insert(tenantUnitsData.map(tu => ({ ...tu, rent_amount: units.find(u => u.id === tu.unit_id)?.rent_amount, rent_due_day: units.find(u => u.id === tu.unit_id)?.rent_due_day })))
       .select();
 
     if (tenantUnitsError) {

@@ -3,8 +3,9 @@
  * This service handles all API calls to the backend
  */
 
-// In Vite, use import.meta.env instead of process.env
-const API_URL = `${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api`;
+// With Vite's proxy setup, we can use relative URLs for API calls
+// The proxy in vite.config.ts will forward requests to the backend
+const API_URL = '/api';
 
 /**
  * Generic fetch wrapper with error handling
@@ -22,11 +23,15 @@ async function fetchApi<T>(
 
   const config = {
     ...options,
-    headers
+    headers,
+    credentials: 'include' as RequestCredentials, // Include cookies in the request
+    mode: 'cors' as RequestMode          // Enable CORS
   };
 
   try {
+    console.log(`API Request to ${url}`, config);
     const response = await fetch(url, config);
+    console.log(`API Response from ${url}`, { status: response.status, statusText: response.statusText });
 
     if (!response.ok) {
       // Try to get error message from response
@@ -37,11 +42,14 @@ async function fetchApi<T>(
         // If parsing JSON fails, use status text
         throw new Error(`API Error: ${response.status} ${response.statusText}`);
       }
-    }
-
-    // Check if response is empty
+    }    // Check if response is empty
     const text = await response.text();
-    return text ? JSON.parse(text) as T : {} as T;
+    const data = text ? JSON.parse(text) as T : {} as T;
+
+    // Debug log successful responses
+    console.log(`API Response for ${endpoint}:`, data);
+
+    return data;
   } catch (error) {
     console.log(`API Error for ${endpoint}:`, error);
     throw error;
@@ -55,13 +63,16 @@ export interface Tenant {
   last_name: string;
   email: string;
   phone: string;
-  unit_id?: number | string | null | undefined;
-  unit_number?: string | null;
-  property_name?: string | null;
-  property_address?: string | null;
-  full_address?: string;
-  rent_amount?: number | null;
-  rent_due_day?: number | null;
+  // These fields are derived from relationships and not stored directly in the tenant table
+  unit_id?: number | string | null | undefined; // From tenant_units junction table
+  unit_number?: string | null; // From units table through tenant_units
+  property_name?: string | null; // From properties table through tenant_units -> units
+  property_address?: string | null; // From properties table through tenant_units -> units
+  property_city?: string | null; // From properties table through tenant_units -> units
+  property_province?: string | null; // From properties table through tenant_units -> units
+  property_postal_code?: string | null; // From properties table through tenant_units -> units
+  rent_amount?: number | null; // From tenant_units junction table
+  rent_due_day?: number | null; // From tenant_units junction table
 }
 
 // Tenant API functions
@@ -71,11 +82,14 @@ export const tenantsApi = {
   create: (data: Tenant) => fetchApi<Tenant>("/tenants", {
     method: "POST",
     body: JSON.stringify(data)
-  }),
-  update: (id: string, data: Tenant) => fetchApi<Tenant>(`/tenants/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(data)
-  }),
+  }), update: (id: string, data: Tenant) => {
+    console.log(`API Request to update tenant ${id}:`, data);
+    console.log(`API Request raw JSON:`, JSON.stringify(data));
+    return fetchApi<Tenant>(`/tenants/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data)
+    });
+  },
   getAllUnits: () => fetchApi<any[]>("/tenants/units") // Add method to get all units
 };
 

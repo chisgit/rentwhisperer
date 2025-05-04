@@ -20,7 +20,13 @@ const Tenants = () => {
     try {
       // Add type assertion to ensure API response matches our Tenant interface
       const data = await tenantsApi.getAll() as Tenant[];
-      setTenants(data);
+      // Explicitly convert rent_amount and rent_due_day to numbers
+      const transformedData = data.map(tenant => ({
+        ...tenant,
+        rent_amount: tenant.rent_amount ? parseFloat(tenant.rent_amount as any) : undefined,
+        rent_due_day: tenant.rent_due_day ? parseInt(tenant.rent_due_day as any, 10) : undefined,
+      }));
+      setTenants(transformedData);
       setError(null);
     } catch (err: any) {
       console.error("Error fetching tenants:", err);
@@ -45,7 +51,6 @@ const Tenants = () => {
     setIsModalOpen(false);
     setSelectedTenant(null);
   };
-
   // Save tenant (create or update)
   const handleSaveTenant = async (formData: Tenant) => {
     setApiLoading(true);

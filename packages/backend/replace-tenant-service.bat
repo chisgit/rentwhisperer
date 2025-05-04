@@ -1,0 +1,6 @@
+@echo off
+echo Backing up current tenant.service.ts file...
+copy src\services\tenant.service.ts src\services\tenant.service.ts.bak
+echo Replacing with fixed version...
+copy tenant.service.ts.new src\services\tenant.service.ts
+echo Done!

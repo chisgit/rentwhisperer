@@ -1,0 +1,3 @@
+@echo off
+echo Running database reset script...
+powershell -ExecutionPolicy Bypass -File src\scripts\set-db-url.ps1

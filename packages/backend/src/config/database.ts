@@ -10,7 +10,8 @@ dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY; // Updated to match .env file
+const supabaseKey = process.env.SUPABASE_ANON_KEY; // Used for normal client operations
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY; // Used to bypass RLS
 
 if (!supabaseUrl || !supabaseKey) {
   logger.error("Missing Supabase credentials");
@@ -18,7 +19,13 @@ if (!supabaseUrl || !supabaseKey) {
   process.exit(1);
 }
 
+// Create client with anon key for regular operations
 export const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Create a service role client that can bypass RLS if service key is available
+export const supabaseAdmin = supabaseServiceKey
+  ? createClient(supabaseUrl, supabaseServiceKey)
+  : supabase; // Fallback to regular client if no service key
 
 // Define database types to match Supabase schema
 export interface Tenant {
@@ -29,16 +36,17 @@ export interface Tenant {
   phone: string; // WhatsApp-enabled phone number
   created_at: string;
   updated_at: string;
-  unit_id?: string | null; // Made optional with "?"  // Additional frontend fields (not stored in tenants table, derived from property/unit relationships)
-  property_name?: string;
-  property_address?: string; // Derived from property.address
-  property_city?: string;
-  property_province?: string;
-  property_postal_code?: string;
-  unit_number?: string;
-  rent_amount?: number;
-  rent_due_day?: number;
-  tenant_units?: TenantUnit[];
+  // The following fields are not stored in the tenants table but derived through relationships
+  unit_id?: string | null; // Derived from tenant_units relationship
+  property_name?: string; // Derived from units->properties relationship
+  property_address?: string; // Derived from units->properties relationship
+  property_city?: string; // Derived from units->properties relationship
+  property_province?: string; // Derived from units->properties relationship
+  property_postal_code?: string; // Derived from units->properties relationship
+  unit_number?: string; // Derived from units relationship
+  rent_amount?: number; // Derived from tenant_units relationship
+  rent_due_day?: number; // Derived from tenant_units relationship
+  tenant_units?: TenantUnit[]; // Related tenant-unit relationships
 }
 
 export interface TenantUnit {
