@@ -56,6 +56,7 @@ const Tenants = () => {
     setApiLoading(true);
     try {
       if (formData.id) {
+        console.log("Updating tenant with data:", formData);
         // Update existing tenant
         const updatedTenant = await tenantsApi.update(formData.id.toString(), formData) as Tenant;
 
@@ -68,6 +69,7 @@ const Tenants = () => {
 
         console.log("Tenant updated successfully:", updatedTenant);
       } else {
+        console.log("Creating tenant with data:", formData);
         // Create new tenant
         const newTenant = await tenantsApi.create(formData) as Tenant;
 
@@ -140,7 +142,7 @@ const Tenants = () => {
                   <td>{tenant.phone}</td>
                   <td>{tenant.unit_number}</td>
                   <td>{tenant.property_name}</td>
-                  <td>{tenant.rent_amount ? formatCurrency(tenant.rent_amount) : "-"}</td>
+                  <td>{typeof tenant.rent_amount === 'number' ? formatCurrency(tenant.rent_amount) : "-"}</td>
                   <td>{tenant.rent_due_day ? `${tenant.rent_due_day}${getDayOrdinal(tenant.rent_due_day)}` : "-"}</td>
                   <td className="actions-cell">
                     <button

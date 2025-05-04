@@ -32,6 +32,8 @@ const TenantForm: React.FC<TenantFormProps> = ({
     email: "",
     phone: "",
     unit_id: "",
+    rent_amount: undefined,
+    rent_due_day: undefined,
   });
 
   const [units, setUnits] = useState<{ value: string, label: string }[]>(
@@ -103,6 +105,8 @@ const TenantForm: React.FC<TenantFormProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     console.log("Form submitted with data:", formData);
+    console.log("rent_amount:", formData.rent_amount);
+    console.log("rent_due_day:", formData.rent_due_day);
 
     const dataToSave = {
       ...formData,
@@ -214,6 +218,7 @@ const TenantForm: React.FC<TenantFormProps> = ({
             onChange={handleChange}
             placeholder="e.g. 1500"
             fullWidth
+            required
             disabled={loading}
           />
           <Input
@@ -228,6 +233,7 @@ const TenantForm: React.FC<TenantFormProps> = ({
             placeholder="e.g. 1 (for 1st of month)"
             helperText="Day of month rent is due (1-31)"
             fullWidth
+            required
             disabled={loading}
           />
         </div>

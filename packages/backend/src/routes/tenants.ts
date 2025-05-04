@@ -62,23 +62,29 @@ router.get("/:id", async (req, res) => {
  */
 router.post("/", async (req, res) => {
   try {
-    const { first_name, last_name, email, phone, unit_id } = req.body;
+    const { first_name, last_name, email, phone, unit_id, rent_amount, rent_due_day } = req.body;
     const landlordId = "322128c3-eba9-40b7-a8e9-9a35e498197a"; // Hardcoded landlord ID
 
-    logger.debug("POST /api/tenants - Creating new tenant");
-    console.log("POST /api/tenants - Creating new tenant:", first_name, last_name);
+    logger.debug("POST /tenants - Creating new tenant");
+    console.log("POST /tenants - Creating new tenant:", first_name, last_name);
+    console.log("Received rent data:", { rent_amount, rent_due_day });
 
     // Basic validation
     if (!first_name || !last_name || !phone || !unit_id) {
       return res.status(400).json({
         error: "Missing required fields: first_name, last_name, phone, and unit_id are required"
       });
-    } const tenant = await tenantService.createTenant({
+    }
+
+    // Pass ALL the fields including rent_amount and rent_due_day
+    const tenant = await tenantService.createTenant({
       first_name,
       last_name,
       email,
       phone,
-      unit_id
+      unit_id,
+      rent_amount: rent_amount !== undefined ? Number(rent_amount) : undefined, // Ensure it's a number
+      rent_due_day: rent_due_day !== undefined ? Number(rent_due_day) : undefined // Ensure it's a number
     });
 
     res.status(201).json(tenant);

@@ -199,12 +199,39 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
       .maybeSingle();
 
     console.log(`[getTenantById] Direct tenant_units query result:`, directTenantUnits);
+    console.log(`[getTenantById] Detailed tenant_units data:`, JSON.stringify(directTenantUnits, null, 2));
     if (directError) {
       console.log(`[getTenantById] Error in direct tenant_units query:`, directError);
     }
 
     const primaryUnit = primaryRelationship?.units;
     const properties = primaryUnit?.properties;
+
+    // Debug the rent amount parsing
+    if (directTenantUnits?.rent_amount !== undefined) {
+      console.log(`[getTenantById] Parsing rent_amount: original=${directTenantUnits.rent_amount}, type=${typeof directTenantUnits.rent_amount}`);
+      console.log(`[getTenantById] After parsing: ${parseFloat(directTenantUnits.rent_amount)}`);
+    } else if (primaryRelationship?.rent_amount) {
+      console.log(`[getTenantById] Parsing rent_amount from primaryRelationship: original=${primaryRelationship.rent_amount}, type=${typeof primaryRelationship.rent_amount}`);
+      console.log(`[getTenantById] After parsing: ${parseFloat(primaryRelationship.rent_amount)}`);
+    }
+
+    // Fix the rent_amount parsing: ensure we properly handle 0 values
+    let parsedRentAmount: number | undefined = undefined;
+
+    if (directTenantUnits?.rent_amount !== undefined) {
+      // For Supabase, numeric types come back as strings, so we need to parse them
+      parsedRentAmount = parseFloat(directTenantUnits.rent_amount);
+      // Check if it's actually 0 and not NaN
+      if (parsedRentAmount === 0) {
+        console.log("[getTenantById] Rent amount is exactly 0");
+      }
+    } else if (primaryRelationship?.rent_amount !== undefined) {
+      parsedRentAmount = parseFloat(primaryRelationship.rent_amount);
+      if (parsedRentAmount === 0) {
+        console.log("[getTenantById] Rent amount from primaryRelationship is exactly 0");
+      }
+    }
 
     // Explicitly map to Tenant type, converting nulls to undefined for optional fields
     // Use direct query results if available, as they are likely more up-to-date
@@ -223,12 +250,8 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
       property_city: properties?.city ?? undefined,
       property_province: properties?.province ?? undefined,
       property_postal_code: properties?.postal_code ?? undefined,
-      // Give preference to direct query data
-      rent_amount: directTenantUnits?.rent_amount
-        ? parseFloat(directTenantUnits.rent_amount)
-        : primaryRelationship?.rent_amount
-          ? parseFloat(primaryRelationship.rent_amount)
-          : undefined,
+      // Use our explicitly parsed rent_amount that correctly handles 0
+      rent_amount: parsedRentAmount,
       rent_due_day: directTenantUnits?.rent_due_day ?? primaryRelationship?.rent_due_day ?? undefined,
     };
 
@@ -257,8 +280,53 @@ export async function createTenant(tenantData: Omit<Tenant, "id" | "created_at" 
     // Extract unit_id and rent information from the tenant data
     const { unit_id, rent_amount, rent_due_day, ...tenantFields } = tenantData;
 
-    // First, insert the tenant record
-    const { data: tenant, error: tenantError } = await supabase
+    // Validate required fields
+    if (!tenantFields.first_name?.trim()) {
+      throw new Error("First name is required");
+    }
+
+    if (!tenantFields.last_name?.trim()) {
+      throw new Error("Last name is required");
+    }
+
+    if (!tenantFields.phone?.trim()) {
+      throw new Error("Phone number is required");
+    }
+
+    // Set default values for rent fields if not provided but unit is assigned
+    let validatedRentAmount = rent_amount;
+    let validatedRentDueDay = rent_due_day;
+
+    if (unit_id) {
+      // Set defaults for missing values when a unit is assigned
+      if (validatedRentAmount === undefined || validatedRentAmount === null ||
+        (typeof validatedRentAmount === 'number' && isNaN(validatedRentAmount))) {
+        validatedRentAmount = 0;
+        console.log(`[createTenant] Using default rent_amount: 0`);
+      }
+
+      if (validatedRentDueDay === undefined || validatedRentDueDay === null ||
+        (typeof validatedRentDueDay === 'number' && isNaN(validatedRentDueDay))) {
+        validatedRentDueDay = 1;
+        console.log(`[createTenant] Using default rent_due_day: 1`);
+      }
+
+      // Validate rent amount is not negative
+      if (typeof validatedRentAmount === 'number' && validatedRentAmount < 0) {
+        throw new Error("Rent amount cannot be negative");
+      }
+
+      // Validate rent due day is between 1 and 31
+      if (typeof validatedRentDueDay === 'number' && (validatedRentDueDay < 1 || validatedRentDueDay > 31)) {
+        throw new Error("Rent due day must be between 1 and 31");
+      }
+    }
+
+    console.log(`[createTenant] Validated rent values: amount=${validatedRentAmount} (${typeof validatedRentAmount}), due_day=${validatedRentDueDay} (${typeof validatedRentDueDay})`);
+
+    // First, insert the tenant record using adminSupabase to bypass RLS
+    console.log(`[createTenant] Inserting tenant with admin client:`, tenantFields);
+    const { data: tenant, error: tenantError } = await adminSupabase
       .from("tenants")
       .insert([tenantFields])
       .select()
@@ -274,41 +342,91 @@ export async function createTenant(tenantData: Omit<Tenant, "id" | "created_at" 
       throw new Error("No data returned after creating tenant");
     }
 
-    // If unit_id is provided, create the tenant-unit relationship
+    console.log(`[createTenant] Successfully created tenant:`, {
+      id: tenant.id,
+      name: `${tenant.first_name} ${tenant.last_name}`
+    });
+
+    // Always create a tenant-unit relationship if unit_id is provided
     if (unit_id) {
-      const tenantUnitData: any = {
+      // Ensure rent_amount and rent_due_day are properly parsed as numbers
+      const finalRentAmount = typeof validatedRentAmount === 'number'
+        ? validatedRentAmount
+        : (typeof validatedRentAmount === 'string' ? parseFloat(validatedRentAmount) || 0 : 0);
+      const finalRentDueDay = typeof validatedRentDueDay === 'number'
+        ? validatedRentDueDay
+        : (typeof validatedRentDueDay === 'string' ? parseInt(validatedRentDueDay, 10) || 1 : 1);
+
+      console.log(`[createTenant] Final rent values: amount=${finalRentAmount}, due_day=${finalRentDueDay}`);
+
+      const tenantUnitData = {
         tenant_id: tenant.id,
         unit_id: unit_id,
         is_primary: true,
-        lease_start: new Date().toISOString()
+        lease_start: new Date().toISOString(),
+        rent_amount: finalRentAmount,
+        rent_due_day: finalRentDueDay
       };
 
-      // Add rent information if provided
-      if (rent_amount !== undefined) {
-        tenantUnitData.rent_amount = rent_amount;
-      }
+      // Log the exact data being sent to the database
+      console.log(`[createTenant] Creating tenant-unit relationship with data:`, JSON.stringify(tenantUnitData));
+      console.log(`[createTenant] tenantUnitData.rent_amount (type ${typeof tenantUnitData.rent_amount}): `, tenantUnitData.rent_amount);
+      console.log(`[createTenant] tenantUnitData.rent_due_day (type ${typeof tenantUnitData.rent_due_day}): `, tenantUnitData.rent_due_day);
 
-      if (rent_due_day !== undefined) {
-        tenantUnitData.rent_due_day = rent_due_day;
-      }
-
-      // Use adminSupabase to bypass RLS
-      console.log(`Creating tenant-unit relationship with admin client:`, tenantUnitData);
-      const { error: relationError } = await adminSupabase
+      // Insert the relationship using adminSupabase to bypass RLS
+      const { data: relationshipResult, error: relationError } = await adminSupabase
         .from("tenant_units")
-        .insert([tenantUnitData]);
+        .insert([tenantUnitData])
+        .select();
 
       if (relationError) {
         logger.error(`Error creating tenant-unit relationship:`, relationError);
-        console.log(`Error creating tenant-unit relationship:`, relationError);
-        // Don't throw here, as the tenant was already created
+        console.log(`[createTenant] Error creating tenant-unit relationship:`, relationError);
       } else {
-        console.log(`Successfully created tenant-unit relationship`);
+        console.log(`[createTenant] Successfully created tenant-unit relationship:`, relationshipResult);
+
+        // Verify the tenant-unit relationship was created correctly
+        const { data: verifyData, error: verifyError } = await adminSupabase
+          .from("tenant_units")
+          .select("*")
+          .eq("tenant_id", tenant.id)
+          .eq("unit_id", unit_id)
+          .single();
+
+        if (verifyError) {
+          console.log(`[createTenant] Error verifying tenant-unit relationship:`, verifyError);
+        } else {
+          console.log(`[createTenant] Verified tenant-unit relationship - contains:`, verifyData);
+        }
       }
     }
 
-    // Return the created tenant with the unit_id included
-    return { ...tenant, unit_id, rent_amount, rent_due_day };
+    // Wait to ensure data consistency
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Get the complete tenant data with relationships to return
+    const createdTenant = await getTenantById(tenant.id);
+
+    if (!createdTenant) {
+      // If for some reason getTenantById fails, return basic tenant info
+      console.log(`[createTenant] Warning: Could not get complete tenant data, returning basic info`);
+      return {
+        ...tenant,
+        unit_id,
+        rent_amount: validatedRentAmount,
+        rent_due_day: validatedRentDueDay
+      };
+    }
+
+    console.log(`[createTenant] Returning complete tenant data:`, {
+      id: createdTenant.id,
+      name: `${createdTenant.first_name} ${createdTenant.last_name}`,
+      unit_id: createdTenant.unit_id,
+      rent_amount: createdTenant.rent_amount,
+      rent_due_day: createdTenant.rent_due_day
+    });
+
+    return createdTenant;
   } catch (err) {
     console.log("Exception in createTenant:", err);
     throw err;
@@ -321,6 +439,64 @@ export async function createTenant(tenantData: Omit<Tenant, "id" | "created_at" 
 export async function updateTenant(id: string, tenantData: Partial<Tenant>): Promise<Tenant | null> {
   try {
     console.log(`[updateTenant] Updating tenant ${id} with data:`, tenantData);
+
+    // Extract unit_id and property fields from the tenant data
+    const { unit_id, unit_number, property_name, property_address, property_city, property_province, property_postal_code, rent_amount, rent_due_day, ...tenantFields } = tenantData;
+
+    // Validate required fields
+    if (tenantFields.first_name !== undefined && !tenantFields.first_name?.trim()) {
+      throw new Error("First name is required");
+    }
+
+    if (tenantFields.last_name !== undefined && !tenantFields.last_name?.trim()) {
+      throw new Error("Last name is required");
+    }
+
+    if (tenantFields.phone !== undefined && !tenantFields.phone?.trim()) {
+      throw new Error("Phone number is required");
+    }
+
+    // Validate required fields when changing unit
+    if (unit_id !== undefined) {
+      // When changing a unit, rent_amount and rent_due_day should be required
+      if (rent_amount === undefined || rent_amount === null || (typeof rent_amount === 'number' && isNaN(rent_amount))) {
+        throw new Error("Rent amount is required");
+      }
+
+      if (rent_due_day === undefined || rent_due_day === null || (typeof rent_due_day === 'number' && isNaN(rent_due_day))) {
+        throw new Error("Rent due day is required");
+      }
+
+      // Validate rent amount is not negative
+      if (typeof rent_amount === 'number' && rent_amount < 0) {
+        throw new Error("Rent amount cannot be negative");
+      }
+
+      // Validate rent due day is between 1 and 31
+      if (typeof rent_due_day === 'number' && (rent_due_day < 1 || rent_due_day > 31)) {
+        throw new Error("Rent due day must be between 1 and 31");
+      }
+    } else {
+      // When only updating rent values (not changing unit), validate if provided
+      if (rent_amount !== undefined && (typeof rent_amount !== 'number' || isNaN(rent_amount) || rent_amount < 0)) {
+        throw new Error("Rent amount must be a non-negative number");
+      }
+
+      if (rent_due_day !== undefined && (typeof rent_due_day !== 'number' || isNaN(rent_due_day) || rent_due_day < 1 || rent_due_day > 31)) {
+        throw new Error("Rent due day must be a number between 1 and 31");
+      }
+    }
+
+    // No need for defaults, we've validated that the values are proper if provided
+    const validatedRentAmount = rent_amount;
+    const validatedRentDueDay = rent_due_day;
+
+    console.log(`[updateTenant] Validated rent values:`, {
+      amount: validatedRentAmount,
+      amount_type: typeof validatedRentAmount,
+      due_day: validatedRentDueDay,
+      due_day_type: typeof validatedRentDueDay
+    });
 
     // First, check if the tenant exists
     const { data: existingTenant, error: selectError } = await supabase
@@ -339,9 +515,6 @@ export async function updateTenant(id: string, tenantData: Partial<Tenant>): Pro
       console.log(`Tenant with id ${id} not found.`);
       return null; // Or throw an error, depending on the desired behavior
     }
-
-    // Extract unit_id and property fields from the tenant data
-    const { unit_id, unit_number, property_name, property_address, property_city, property_province, property_postal_code, rent_amount, rent_due_day, ...tenantFields } = tenantData;
 
     // Log what fields we're updating in the tenant record
     console.log(`[updateTenant] Updating tenant basic info:`, tenantFields);
@@ -382,7 +555,7 @@ export async function updateTenant(id: string, tenantData: Partial<Tenant>): Pro
     });
 
     // If unit_id, rent_amount or rent_due_day is provided, update the tenant-unit relationship
-    if (unit_id !== undefined || rent_amount !== undefined || rent_due_day !== undefined) {
+    if (unit_id !== undefined || validatedRentAmount !== undefined || validatedRentDueDay !== undefined) {
       try {
         // First check if there is an existing relationship using admin client to bypass RLS
         const { data: existingRelation, error: fetchRelationError } = await adminSupabase
@@ -405,17 +578,42 @@ export async function updateTenant(id: string, tenantData: Partial<Tenant>): Pro
           if (unit_id !== undefined && unit_id !== existingRelation.unit_id) {
             updateData.unit_id = unit_id;
             console.log(`[updateTenant] Changing unit_id from ${existingRelation.unit_id} to ${unit_id}`);
+
+            // When changing units, always ensure rent values are set
+            if (validatedRentAmount === undefined) {
+              updateData.rent_amount = 0;
+              console.log(`[updateTenant] Setting default rent_amount to 0 for unit change`);
+            }
+
+            if (validatedRentDueDay === undefined) {
+              updateData.rent_due_day = 1;
+              console.log(`[updateTenant] Setting default rent_due_day to 1 for unit change`);
+            }
           }
 
-          // Always include rent_amount and rent_due_day if provided
-          if (rent_amount !== undefined) {
-            updateData.rent_amount = rent_amount;
-            console.log(`[updateTenant] Setting rent_amount to ${rent_amount}`);
+          // Use validated values for rent fields - ensure they are proper numbers
+          if (validatedRentAmount !== undefined) {
+            // Convert to number if it's a string
+            const finalRentAmount = typeof validatedRentAmount === 'number'
+              ? validatedRentAmount
+              : typeof validatedRentAmount === 'string'
+                ? parseFloat(validatedRentAmount) || 0
+                : 0;
+
+            updateData.rent_amount = finalRentAmount;
+            console.log(`[updateTenant] Setting rent_amount to ${finalRentAmount} (original: ${validatedRentAmount})`);
           }
 
-          if (rent_due_day !== undefined) {
-            updateData.rent_due_day = rent_due_day;
-            console.log(`[updateTenant] Setting rent_due_day to ${rent_due_day}`);
+          if (validatedRentDueDay !== undefined) {
+            // Convert to number if it's a string
+            const finalRentDueDay = typeof validatedRentDueDay === 'number'
+              ? validatedRentDueDay
+              : typeof validatedRentDueDay === 'string'
+                ? parseInt(validatedRentDueDay, 10) || 1
+                : 1;
+
+            updateData.rent_due_day = finalRentDueDay;
+            console.log(`[updateTenant] Setting rent_due_day to ${finalRentDueDay} (original: ${validatedRentDueDay})`);
           }
 
           // Only proceed with update if there are fields to update
@@ -457,21 +655,27 @@ export async function updateTenant(id: string, tenantData: Partial<Tenant>): Pro
           // Create new relationship - we must have a unit_id
           console.log(`[updateTenant] No existing relation found, creating new tenant-unit relationship`);
 
-          const tenantUnitData: any = {
+          // Always enforce rent values for new tenant-unit relationships
+          const finalRentAmount = typeof validatedRentAmount === 'number'
+            ? validatedRentAmount
+            : typeof validatedRentAmount === 'string'
+              ? parseFloat(validatedRentAmount) || 0
+              : 0;
+
+          const finalRentDueDay = typeof validatedRentDueDay === 'number'
+            ? validatedRentDueDay
+            : typeof validatedRentDueDay === 'string'
+              ? parseInt(validatedRentDueDay, 10) || 1
+              : 1;
+
+          const tenantUnitData = {
             tenant_id: id,
             unit_id: unit_id,
             is_primary: true,
-            lease_start: new Date().toISOString()
+            lease_start: new Date().toISOString(),
+            rent_amount: finalRentAmount,
+            rent_due_day: finalRentDueDay
           };
-
-          // Add rent_amount and rent_due_day if provided
-          if (rent_amount !== undefined) {
-            tenantUnitData.rent_amount = rent_amount;
-          }
-
-          if (rent_due_day !== undefined) {
-            tenantUnitData.rent_due_day = rent_due_day;
-          }
 
           console.log(`[updateTenant] Creating tenant-unit relationship with data:`, tenantUnitData);
 
