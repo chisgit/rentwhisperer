@@ -50,12 +50,12 @@ async function fetchApi<T>(
 
 // Tenant interface
 export interface Tenant {
-  id?: string;
+  id?: number | string;
   first_name: string;
   last_name: string;
   email: string;
   phone: string;
-  unit_id?: string | null;
+  unit_id?: number | string | null | undefined;
   unit_number?: string | null;
   property_name?: string | null;
   property_address?: string | null;

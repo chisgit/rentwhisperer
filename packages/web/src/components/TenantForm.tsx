@@ -82,13 +82,22 @@ const TenantForm: React.FC<TenantFormProps> = ({
       });
     }
   }, [tenant]);
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+
+    // Handle numeric fields specially
+    if (name === 'rent_amount' || name === 'rent_due_day') {
+      const numValue = value === '' ? undefined : Number(value);
+      setFormData(prev => ({
+        ...prev,
+        [name]: numValue
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -176,8 +185,7 @@ const TenantForm: React.FC<TenantFormProps> = ({
             required
             disabled={loading}
           />
-        </div>
-        <div className="mt-4">
+        </div>        <div className="mt-4">
           <Select
             label="Assigned Unit"
             id="unit_id"
@@ -194,6 +202,34 @@ const TenantForm: React.FC<TenantFormProps> = ({
           {unitsLoading && (
             <p className="mt-2 text-sm text-gray-500">Loading available units...</p>
           )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <Input
+            label="Rent Amount ($)"
+            id="rent_amount"
+            name="rent_amount"
+            type="number"
+            value={formData.rent_amount?.toString() || ""}
+            onChange={handleChange}
+            placeholder="e.g. 1500"
+            fullWidth
+            disabled={loading}
+          />
+          <Input
+            label="Rent Due Day"
+            id="rent_due_day"
+            name="rent_due_day"
+            type="number"
+            min="1"
+            max="31"
+            value={formData.rent_due_day?.toString() || ""}
+            onChange={handleChange}
+            placeholder="e.g. 1 (for 1st of month)"
+            helperText="Day of month rent is due (1-31)"
+            fullWidth
+            disabled={loading}
+          />
         </div>
       </form>
     </Card>

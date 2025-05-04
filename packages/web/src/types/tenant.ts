@@ -4,7 +4,7 @@ interface Tenant {
   last_name: string;
   email: string;
   phone: string;
-  unit_id: number | string;
+  unit_id: number | string | null | undefined;
   unit_number?: string;
   property_name?: string;
   rent_amount?: number;

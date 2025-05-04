@@ -29,13 +29,24 @@ export interface Tenant {
   phone: string; // WhatsApp-enabled phone number
   created_at: string;
   updated_at: string;
-  unit_id: string | null;
+  unit_id?: string | null; // Made optional with "?"  // Additional frontend fields (not stored in tenants table, derived from property/unit relationships)
+  property_name?: string;
+  property_address?: string; // Derived from property.address
+  property_city?: string;
+  property_province?: string;
+  property_postal_code?: string;
+  unit_number?: string;
+  rent_amount?: number;
+  rent_due_day?: number;
+  tenant_units?: TenantUnit[];
 }
 
 export interface TenantUnit {
   tenant_id: string; // UUID in the database
   unit_id: string; // UUID in the database
   is_primary: boolean;
+  rent_amount: number; // Added field for per-tenant rent amount
+  rent_due_day: number; // Added field for per-tenant rent due day
   lease_start: string;
   lease_end: string | null;
   created_at: string;

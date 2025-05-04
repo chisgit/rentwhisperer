@@ -50,6 +50,7 @@ create table if not exists public.tenants (
   last_name text not null,
   email text,
   phone text not null,
+  property_address text,
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null
 );
@@ -176,15 +177,15 @@ create trigger update_rent_payments_updated_at
 
 create trigger update_notifications_updated_at
   before update on public.notifications
-  for each row execute function public.update_updated_at_column();
+  for each row execute function public.update_notifications_updated_at_column();
 
 create trigger update_incoming_messages_updated_at
   before update on public.incoming_messages
-  for each row execute function public.update_updated_at_column();
+  for each row execute function public.update_incoming_messages_updated_at_column();
 
 create trigger update_landlords_updated_at
   before update on public.landlords
-  for each row execute function public.update_updated_at_column();
+  for each row execute function public.update_landlords_updated_at_column();
 
 -- Create indexes for performance
 create index if not exists tenant_units_tenant_id_idx on public.tenant_units(tenant_id);

@@ -7,6 +7,8 @@ export const createTenantSchema = Joi.object({
   email: Joi.string().email().required(),
   phone: Joi.string().required(), // Basic validation, consider more specific phone validation if needed
   unit_id: Joi.string().uuid().required(),
+  rent_amount: Joi.number().min(0),
+  rent_due_day: Joi.number().integer().min(1).max(31),
 });
 
 // Schema for updating an existing tenant (all fields optional)
@@ -16,4 +18,6 @@ export const updateTenantSchema = Joi.object({
   email: Joi.string().email(),
   phone: Joi.string(),
   unit_id: Joi.string().uuid(),
+  rent_amount: Joi.number().min(0).allow(null),
+  rent_due_day: Joi.number().integer().min(1).max(31).allow(null),
 });

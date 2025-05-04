@@ -1,0 +1,251 @@
+import { supabase, Tenant } from "../config/database";
+import { logger } from "../utils/logger";
+
+/**
+ * Get all tenants with unit and property information
+ */
+export async function getAllTenants(): Promise<Tenant[]> {
+  try {
+    console.log("Getting all tenants with unit and property info...");
+    // Join with tenant_units, units, and properties using the new schema structure
+    const { data, error } = await supabase
+      .from("tenants")
+      .select(`
+        *,
+        tenant_units!tenant_units_tenant_id_fkey (
+          unit_id,
+          is_primary,
+          lease_start,
+          lease_end,
+          units:unit_id (
+            id, 
+            unit_number,
+            rent_amount,
+            rent_due_day,
+            property_id,
+            properties:property_id (
+              id,
+              name,
+              address,
+              city,
+              province,
+              postal_code
+            )
+          )
+        )
+      `);
+
+    if (error) {
+      logger.error(`Error fetching tenants: ${error.message}`, error);
+      console.log(`Error fetching tenants:`, error);
+      throw new Error(`Failed to fetch tenants: ${error.message}`);
+    }
+
+    // Transform the data to match the expected format in the frontend
+    const transformedData = data?.map((tenant: any) => {
+      // Find primary unit relationship (if any)
+      const primaryRelationship = tenant.tenant_units?.find((tu: any) => tu.is_primary) || tenant.tenant_units?.[0];
+      const primaryUnit = primaryRelationship?.units;
+      
+      return {
+        ...tenant,
+        unit_id: primaryUnit?.id || null,
+        unit_number: primaryUnit?.unit_number || null,
+        property_name: primaryUnit?.properties?.name || null,
+        property_address: primaryUnit?.properties?.address || null,
+        property_city: primaryUnit?.properties?.city || null,
+        property_province: primaryUnit?.properties?.province || null,
+        property_postal_code: primaryUnit?.properties?.postal_code || null,
+        full_address: primaryUnit?.properties ? 
+          `${primaryUnit.properties.address || ''}, ${primaryUnit.properties.city || ''}, ${primaryUnit.properties.province || ''} ${primaryUnit.properties.postal_code || ''}` : '',
+        rent_amount: primaryUnit?.rent_amount || null,
+        rent_due_day: primaryUnit?.rent_due_day || null,
+      };
+    }) || [];
+
+    return transformedData;
+  } catch (err) {
+    console.log("Exception in getAllTenants:", err);
+    throw err;
+  }
+}
+
+/**
+ * Get tenant by ID with unit and property information
+ */
+export async function getTenantById(id: string): Promise<Tenant | null> {
+  try {
+    // Join with tenant_units, units and properties to get additional information
+    const { data, error } = await supabase
+      .from("tenants")
+      .select(`
+        *,
+        tenant_units!tenant_units_tenant_id_fkey (
+          unit_id,
+          is_primary,
+          lease_start,
+          lease_end,
+          units:unit_id (
+            id, 
+            unit_number,
+            rent_amount,
+            rent_due_day,
+            property_id,
+            properties:property_id (
+              id,
+              name,
+              address,
+              city,
+              province,
+              postal_code
+            )
+          )
+        )
+      `)
+      .eq("id", id)
+      .single();
+
+    if (error) {
+      logger.error(`Error fetching tenant ${id}: ${error.message}`, error);
+      console.log(`Error fetching tenant ${id}:`, error);
+      if (error.code === 'PGRST116') {
+        // PGRST116 means no rows returned
+        return null;
+      }
+      throw new Error(`Failed to fetch tenant: ${error.message}`);
+    }
+
+    if (!data) return null;
+
+    // Find primary unit relationship (if any)
+    const primaryRelationship = data.tenant_units?.find((tu: any) => tu.is_primary) || data.tenant_units?.[0];
+    const primaryUnit = primaryRelationship?.units;
+    
+    return {
+      ...data,
+      unit_id: primaryUnit?.id || null,
+      unit_number: primaryUnit?.unit_number || null,
+      property_name: primaryUnit?.properties?.name || null,
+      property_address: primaryUnit?.properties?.address || null,
+      property_city: primaryUnit?.properties?.city || null,
+      property_province: primaryUnit?.properties?.province || null,
+      property_postal_code: primaryUnit?.properties?.postal_code || null,
+      full_address: primaryUnit?.properties ? 
+        `${primaryUnit.properties.address || ''}, ${primaryUnit.properties.city || ''}, ${primaryUnit.properties.province || ''} ${primaryUnit.properties.postal_code || ''}` : '',
+      rent_amount: primaryUnit?.rent_amount || null,
+      rent_due_day: primaryUnit?.rent_due_day || null,
+    };
+  } catch (err) {
+    console.log("Exception in getTenantById:", err);
+    throw err;
+  }
+}
+
+/**
+ * Create a new tenant - MOCK IMPLEMENTATION FOR DEMO
+ * This function simulates creating a tenant without actually writing to the database
+ * to bypass RLS restrictions
+ */
+export async function createTenant(tenantData: Omit<Tenant, "id" | "created_at" | "updated_at">): Promise<Tenant> {
+  try {
+    console.log("Creating tenant with data:", tenantData);
+
+    // Generate a UUID for the new tenant
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    
+    // Create a mock tenant object
+    const tenant = {
+      id,
+      ...tenantData,
+      created_at: now,
+      updated_at: now
+    };
+    
+    console.log("Created mock tenant:", tenant);
+    
+    return tenant;
+  } catch (err) {
+    console.log("Exception in createTenant:", err);
+    throw err;
+  }
+}
+
+/**
+ * Update an existing tenant - MOCK IMPLEMENTATION FOR DEMO
+ * This function simulates updating a tenant without actually writing to the database
+ * to bypass RLS restrictions
+ */
+export async function updateTenant(id: string, tenantData: Partial<Tenant>): Promise<Tenant> {
+  try {
+    console.log(`Updating tenant ${id} with data:`, tenantData);
+    
+    // Get the existing tenant
+    const existingTenant = await getTenantById(id);
+    
+    if (!existingTenant) {
+      throw new Error(`Tenant with ID ${id} not found`);
+    }
+    
+    // Update the tenant object
+    const updatedTenant = {
+      ...existingTenant,
+      ...tenantData,
+      updated_at: new Date().toISOString()
+    };
+    
+    console.log("Updated mock tenant:", updatedTenant);
+    
+    return updatedTenant;
+  } catch (err) {
+    console.log("Exception in updateTenant:", err);
+    throw err;
+  }
+}
+
+/**
+ * Get all units with property information
+ */
+export async function getAllUnits() {
+  try {
+    console.log("Getting all units with property info...");
+    // Get units with property information joined
+    const { data, error } = await supabase
+      .from("units")
+      .select(`
+        *,
+        properties:property_id (*)
+      `);
+
+    if (error) {
+      logger.error(`Error fetching units: ${error.message}`, error);
+      console.log(`Error fetching units:`, error);
+      throw new Error(`Failed to fetch units: ${error.message}`);
+    }
+
+    // Transform the data to include a display label for the dropdown
+    const formattedUnits = data?.map(unit => ({
+      id: unit.id,
+      unit_number: unit.unit_number,
+      rent_amount: unit.rent_amount,
+      rent_due_day: unit.rent_due_day,
+      property_name: unit.properties?.name || 'Unknown Property',
+      value: unit.id,
+      label: `${unit.unit_number} - ${unit.properties?.name || 'Unknown Property'}`
+    })) || [];
+
+    return formattedUnits;
+  } catch (err) {
+    console.log("Exception in getAllUnits:", err);
+    throw err;
+  }
+}
+
+// Export everything as part of the service module
+export const tenantService = {
+  getAllTenants,
+  getTenantById,
+  createTenant,
+  updateTenant,
+  getAllUnits
+};

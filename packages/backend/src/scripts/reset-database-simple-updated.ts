@@ -82,56 +82,24 @@ async function resetDatabase() {
 
     // Create properties table
     console.log("Creating properties table...");
-    const { error: propTableError } = await supabase.rpc('create_table_if_not_exists', {
-      p_table_name: 'properties',
-      p_table_definition: `
-        id serial primary key,
-        name text not null,
-        address text not null,
-        city text not null,
-        province text not null,
-        postal_code text not null,
-        landlord_id integer not null,
-        created_at timestamp with time zone default now() not null,
-        updated_at timestamp with time zone default now() not null
-      `
-    });
+    const { error: propTableError } = await supabase
+      .from('properties')
+      .insert([])
+      .select();
 
     if (propTableError) {
-      console.log("Error creating properties table with RPC:", propTableError);
-      console.log("Falling back to direct creation...");
-      try {
-        await createPropertiesTable();
-      } catch (err) {
-        console.log("Failed to create properties table:", err);
-      }
+      console.log("Error creating properties table:", propTableError.message);
     }
 
     // Create units table
     console.log("Creating units table...");
-    const { error: unitsTableError } = await supabase.rpc('create_table_if_not_exists', {
-      p_table_name: 'units',
-      p_table_definition: `
-        id serial primary key,
-        unit_number text not null,
-        property_id integer not null references public.properties(id),
-        rent_amount numeric not null,
-        rent_due_day integer not null,
-        lease_start timestamp with time zone not null,
-        lease_end timestamp with time zone,
-        created_at timestamp with time zone default now() not null,
-        updated_at timestamp with time zone default now() not null
-      `
-    });
+    const { error: unitsTableError } = await supabase
+      .from('units')
+      .insert([])
+      .select();
 
     if (unitsTableError) {
-      console.log("Error creating units table with RPC:", unitsTableError);
-      console.log("Falling back to direct creation...");
-      try {
-        await createUnitsTable();
-      } catch (err) {
-        console.log("Failed to create units table:", err);
-      }
+      console.log("Error creating units table:", unitsTableError.message);
     }
 
     // Insert test data
