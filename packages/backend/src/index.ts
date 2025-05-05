@@ -11,6 +11,7 @@ import rentRoutes from "./routes/rent";
 import whatsappRoutes from "./routes/whatsapp";
 import cronRoutes from "./routes/cron";
 import pdfRoutes from "./routes/pdf";
+import aiToolsRoutes from "./routes/ai-tools";
 
 // Load environment variables
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
@@ -32,7 +33,8 @@ app.use("/api/tenants", tenantsRoutes);
 app.use("/api/rent", rentRoutes);
 app.use("/api/whatsapp", whatsappRoutes);
 app.use("/api/pdf", pdfRoutes);
-app.use("/cron", cronRoutes);
+app.use("/api/ai-tools", aiToolsRoutes);
+app.use("/api/cron", cronRoutes);
 
 // Root route for health check with DB connection test
 app.get("/", async (req, res) => {

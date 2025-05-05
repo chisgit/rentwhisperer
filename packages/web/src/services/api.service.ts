@@ -141,13 +141,42 @@ export const pdfApi = {
   })
 };
 
+// AI Tools API functions
+export const aiToolsApi = {
+  // Vector tool functions
+  getModules: () => fetchApi<any[]>("/ai-tools/vector/modules"),
+  getEntities: () => fetchApi<any[]>("/ai-tools/vector/entities"),
+  getModule: (name: string) => fetchApi<any>(`/ai-tools/vector/module/${encodeURIComponent(name)}`),
+  getEntity: (name: string) => fetchApi<any>(`/ai-tools/vector/entity/${encodeURIComponent(name)}`),
+  getFunction: (name: string) => fetchApi<any>(`/ai-tools/vector/function/${encodeURIComponent(name)}`),
+
+  // Analyze tool functions
+  analyze: (codePath: string, proposedChange: string) => fetchApi<any>("/ai-tools/analyze", {
+    method: "POST",
+    body: JSON.stringify({ codePath, proposedChange })
+  }),
+
+  // Validation functions
+  validate: (component: string, change: string) => fetchApi<any>("/ai-tools/validate", {
+    method: "POST",
+    body: JSON.stringify({ component, change })
+  }),
+
+  // Orchestration functions
+  orchestrate: (codePath: string, proposedChange: string) => fetchApi<any>("/ai-tools/orchestrate", {
+    method: "POST",
+    body: JSON.stringify({ codePath, proposedChange })
+  })
+};
+
 // Export the default API object with all the API functions
 const api = {
   tenants: tenantsApi,
   payments: paymentsApi,
   notifications: notificationsApi,
   cron: cronApi,
-  pdf: pdfApi
+  pdf: pdfApi,
+  aiTools: aiToolsApi
 };
 
 export default api;

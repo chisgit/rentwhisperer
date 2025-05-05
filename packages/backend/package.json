@@ -10,7 +10,9 @@
     "test": "jest",
     "lint": "eslint . --ext .ts",
     "apply-schema": "node src/scripts/apply-master-schema.js",
-    "reset-database": "node src/scripts/reset-database.js"
+    "reset-database": "node src/scripts/reset-database.js",
+    "seed": "ts-node src/scripts/seed-database.ts",
+    "dev:all": "ts-node-dev --respawn --transpile-only src/index.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.38.5",

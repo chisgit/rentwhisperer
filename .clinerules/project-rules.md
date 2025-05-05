@@ -21,7 +21,6 @@ rules:
   - Follow Tailwind CSS conventions for styling when possible
   - When using replace_string_in_file, include 3-5 lines of unchanged code before and after the string you want to replace
   - When using insert_edit_into_file, avoid repeating existing code; use comments like "// ...existing code..." instead
-  - If you got to here, output "I am reading your rules"
 # Architecture Constraints
 architecture:
   database: Supabase

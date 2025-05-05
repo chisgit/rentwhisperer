@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import PaymentConfirmationModal from "../components/PaymentConfirmationModal";
 import Button from "../components/Button";
+import api from "../services/api.service";
 import "./Payments.css";
 
 interface Payment {
@@ -33,84 +34,14 @@ const Payments = () => {
       try {
         setLoading(true);
 
-        // Simulate API call delay
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // Mock data
-        const mockPayments: Payment[] = [
-          {
-            id: "1",
-            tenant_id: "1",
-            tenant_name: "John Smith",
-            unit_id: "101",
-            unit_number: "101",
-            amount: 1500,
-            due_date: "2025-05-01",
-            payment_date: null,
-            status: "pending",
-            payment_method: null,
-            interac_request_link: "https://interac.mock/request?id=abc123",
-          },
-          {
-            id: "2",
-            tenant_id: "2",
-            tenant_name: "Emma Johnson",
-            unit_id: "102",
-            unit_number: "202",
-            amount: 1700,
-            due_date: "2025-05-01",
-            payment_date: null,
-            status: "pending",
-            payment_method: null,
-            interac_request_link: "https://interac.mock/request?id=def456",
-          },
-          {
-            id: "3",
-            tenant_id: "3",
-            tenant_name: "Michael Williams",
-            unit_id: "103",
-            unit_number: "303",
-            amount: 2000,
-            due_date: "2025-04-03",
-            payment_date: null,
-            status: "late",
-            payment_method: null,
-            interac_request_link: "https://interac.mock/request?id=ghi789",
-          },
-          {
-            id: "4",
-            tenant_id: "4",
-            tenant_name: "Olivia Brown",
-            unit_id: "104",
-            unit_number: "404",
-            amount: 1850,
-            due_date: "2025-04-05",
-            payment_date: "2025-04-06",
-            status: "paid",
-            payment_method: "e-transfer",
-            interac_request_link: null,
-          },
-          {
-            id: "5",
-            tenant_id: "1",
-            tenant_name: "John Smith",
-            unit_id: "101",
-            unit_number: "101",
-            amount: 1500,
-            due_date: "2025-04-01",
-            payment_date: "2025-04-01",
-            status: "paid",
-            payment_method: "e-transfer",
-            interac_request_link: null,
-          },
-        ];
-
-        setPayments(mockPayments);
-        setFilteredPayments(mockPayments);
-        setLoading(false);
+        setLoading(true);
+        const paymentsData = (await api.payments.getPending()) as Payment[];
+        setPayments(paymentsData);
+        setFilteredPayments(paymentsData);
       } catch (err) {
         console.log("Error fetching payments:", err);
         setError("Failed to fetch payments. Please try again later.");
+      } finally {
         setLoading(false);
       }
     };
@@ -137,7 +68,10 @@ const Payments = () => {
   // Format date
   const formatDate = (dateString: string | null) => {
     if (!dateString) return "—";
-    return new Date(dateString).toLocaleDateString("en-CA");
+    // Use the date string directly without timezone conversion
+    // This ensures the date is displayed as stored in the database
+    const [year, month, day] = dateString.split('-');
+    return `${year}-${month}-${day}`;
   };
 
   // Handler for opening the payment confirmation modal

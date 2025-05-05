@@ -3,37 +3,23 @@ import { rentService } from "../services/rent.service";
 import { logger } from "../utils/logger";
 import { validateRequest } from "../middleware/validation.middleware"; // Import validation middleware
 import { createRentPaymentSchema, updateRentPaymentSchema } from "../validators/rent.validator"; // Import rent schemas
-import { supabase } from "../config/database"; // Import supabase client
+import { paymentService } from "../services/payment.service";
 
 const router = express.Router();
 
 /**
  * Get all rent payments
  */
-router.get("/", async (req, res) => {
+router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     logger.debug("GET /api/rent - Getting all rent payments");
     console.log("GET /api/rent - Getting all rent payments");
 
-    const { data, error } = await supabase
-      .from("rent_payments")
-      .select(`
-        *,
-        tenant:tenants(first_name, last_name),
-        unit:units(unit_number, property_id)
-      `);
-
-    if (error) {
-      logger.error("Error fetching rent payments", error);
-      console.log("Error fetching rent payments", error);
-      throw new Error("Failed to fetch rent payments");
-    }
-
-    res.json(data);
+    const { tenantId, unitId } = req.query;
+    const payments = await paymentService.listPayments(tenantId as string, unitId as string);
+    res.json(payments);
   } catch (error) {
-    logger.error("Error getting rent payments", error);
-    console.log("Error getting rent payments", error);
-    res.status(500).json({ error: (error as Error).message });
+    next(error);
   }
 });
 
@@ -43,6 +29,21 @@ router.get("/pending", async (req: Request, res: Response, next: NextFunction) =
     logger.debug("Fetching pending rent payments");
     console.log("Fetching pending rent payments");
     const payments = await rentService.getPendingRentPayments();
+
+    // Add debug logging to see if tenant_name and unit_number are included in the response
+    if (payments && payments.length > 0) {
+      console.log(`DEBUG: First payment in response:`, {
+        id: payments[0].id,
+        tenant_id: payments[0].tenant_id,
+        tenant_name: payments[0].tenant_name || 'Missing tenant_name',
+        unit_id: payments[0].unit_id,
+        unit_number: payments[0].unit_number || 'Missing unit_number',
+        status: payments[0].status
+      });
+    } else {
+      console.log('DEBUG: No pending payments found');
+    }
+
     res.json(payments);
   } catch (error) {
     next(error);
@@ -65,12 +66,12 @@ router.get("/tenant/:tenantId", async (req: Request, res: Response, next: NextFu
 /**
  * Get rent payment by ID
  */
-router.get("/:id", async (req: Request, res: Response, next: NextFunction) => { // Add types
+router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     logger.debug(`Fetching rent payment with ID: ${id}`);
     console.log(`Fetching rent payment with ID: ${id}`);
-    const payment = await rentService.getRentPaymentById(id);
+    const payment = await paymentService.getPayment(id);
     if (!payment) {
       return res.status(404).json({ error: true, message: "Rent payment not found" });
     }
@@ -86,11 +87,11 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => { 
 router.post(
   "/",
   validateRequest(createRentPaymentSchema), // Apply validation
-  async (req: Request, res: Response, next: NextFunction) => { // Add types
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       logger.debug("Creating a new rent payment manually");
       console.log("Creating a new rent payment manually with data:", req.body);
-      const newPayment = await rentService.createRentPayment(req.body);
+      const newPayment = await paymentService.createPayment(req.body);
       res.status(201).json(newPayment);
     } catch (error) {
       next(error);
@@ -99,32 +100,19 @@ router.post(
 );
 
 /**
- * Update rent payment status
+
+/**
+ * Update rent payment
  */
 router.put(
   "/:id",
-  validateRequest(updateRentPaymentSchema), // Apply validation
-  async (req: Request, res: Response, next: NextFunction) => { // Add types
+  validateRequest(updateRentPaymentSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
       logger.debug(`Updating rent payment with ID: ${id}`);
       console.log(`Updating rent payment with ID: ${id} with data:`, req.body);
-
-      // Extract only the fields allowed by the schema for update
-      const { status, payment_date } = req.body; // Removed payment_method as it's not used in the service call
-
-      // Ensure status is provided if attempting an update
-      if (!status) {
-        return res.status(400).json({ error: true, message: "Missing required field: status" });
-      }
-
-      // Call the specific update status method
-      const updatedPayment = await rentService.updateRentPaymentStatus(
-        id,
-        status, // Status is required by the service method
-        payment_date // Optional payment date
-      );
-
+      const updatedPayment = await paymentService.updatePayment(id, req.body);
       if (!updatedPayment) {
         return res.status(404).json({ error: true, message: "Rent payment not found" });
       }

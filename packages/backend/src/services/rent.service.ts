@@ -40,14 +40,17 @@ export class RentService {
 
     return data;
   }
-
   /**
    * Get all rent payments for a tenant
    */
-  async getRentPaymentsByTenantId(tenantId: string): Promise<RentPayment[]> {
+  async getRentPaymentsByTenantId(tenantId: string): Promise<any[]> {
     const { data, error } = await supabase
       .from("rent_payments")
-      .select("*")
+      .select(`
+        *,
+        tenants (first_name, last_name),
+        units (unit_number)
+      `)
       .eq("tenant_id", tenantId)
       .order("due_date", { ascending: false });
 
@@ -57,16 +60,37 @@ export class RentService {
       throw new Error(`Failed to fetch rent payments: ${error.message}`);
     }
 
-    return data || [];
-  }
+    // Format the data for the frontend to include tenant_name and unit_number as direct properties
+    const formattedData = (data || []).map(payment => {
+      // Get tenant name from nested tenant object
+      const tenant_name = payment.tenants ?
+        `${payment.tenants.first_name} ${payment.tenants.last_name}` :
+        'Unknown Tenant';
 
+      // Get unit number from nested unit object
+      const unit_number = payment.units ? payment.units.unit_number : 'Unknown Unit';
+
+      // Return restructured payment with flattened properties
+      return {
+        ...payment,
+        tenant_name,
+        unit_number
+      };
+    });
+
+    return formattedData;
+  }
   /**
    * Get all pending rent payments
    */
-  async getPendingRentPayments(): Promise<RentPayment[]> {
+  async getPendingRentPayments(): Promise<any[]> {
     const { data, error } = await supabase
       .from("rent_payments")
-      .select("*")
+      .select(`
+        *,
+        tenants (first_name, last_name),
+        units (unit_number)
+      `)
       .in("status", ["pending", "late"]);
 
     if (error) {
@@ -75,7 +99,29 @@ export class RentService {
       throw new Error(`Failed to fetch pending rent payments: ${error.message}`);
     }
 
-    return data || [];
+    // Format the data for the frontend to include tenant_name and unit_number as direct properties
+    const formattedData = (data || []).map(payment => {
+      // Get tenant name from nested tenant object
+      const tenant_name = payment.tenants ?
+        `${payment.tenants.first_name} ${payment.tenants.last_name}` :
+        'Unknown Tenant';
+
+      // Get unit number from nested unit object
+      const unit_number = payment.units ? payment.units.unit_number : 'Unknown Unit';
+
+      // Add debug logging to see the data structure
+      console.log(`DEBUG: Processing payment ${payment.id} - tenant: ${tenant_name}, unit: ${unit_number}`);
+
+      // Return restructured payment with flattened properties
+      return {
+        ...payment,
+        tenant_name,
+        unit_number
+      };
+    });
+
+    console.log(`DEBUG: Returning ${formattedData.length} formatted pending payments`);
+    return formattedData;
   }
 
   /**
@@ -107,7 +153,6 @@ export class RentService {
 
     return data;
   }
-
   /**
    * Generate rent due for all tenants with rent due today
    */
@@ -118,43 +163,65 @@ export class RentService {
     const currentMonth = today.getMonth();
     const currentYear = today.getFullYear();
 
-    // Format the due date
-    const dueDate = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(currentDay).padStart(2, "0")}`;
+    // Format today's date for logging
+    const todayFormatted = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(currentDay).padStart(2, "0")}`;
+    console.log(`DEBUG: Today's date: ${todayFormatted}`);
 
-    // 1. Get all units with rent due on this day of month
-    const { data: units, error: unitsError } = await supabase
-      .from("units")
+    // 1. Get all tenant_units regardless of rent due day
+    const { data: tenantUnits, error: tenantUnitsError } = await supabase
+      .from("tenant_units")
       .select(`
         *,
-        tenants (*)
-      `)
-      .eq("rent_due_day", currentDay);
+        tenants (*),
+        units (*)
+      `);
 
-    if (unitsError) {
-      logger.error(`Error fetching units with rent due: ${unitsError.message}`);
-      console.log(`Error fetching units with rent due: ${unitsError.message}`);
-      throw new Error(`Failed to fetch units with rent due: ${unitsError.message}`);
+    if (tenantUnitsError) {
+      logger.error(`Error fetching tenant_units with rent due: ${tenantUnitsError.message}`);
+      console.log(`Error fetching tenant_units with rent due: ${tenantUnitsError.message}`);
+      throw new Error(`Failed to fetch tenant_units with rent due: ${tenantUnitsError.message}`);
     }
 
-    if (!units || units.length === 0) {
+    if (!tenantUnits || tenantUnits.length === 0) {
       return [];
     }
 
-    // 2. For each unit, create a rent payment record if it doesn't already exist
+    console.log(`DEBUG: Found ${tenantUnits.length} tenant units`);
+
+    // 2. For each tenant_unit, create a rent payment record if it doesn't already exist
     const createdPayments: RentPayment[] = [];
 
-    for (const unit of units) {
-      // Check if a payment already exists for this unit and date
+    for (const tenantUnit of tenantUnits) {
+      const tenant = tenantUnit.tenants;
+      const unit = tenantUnit.units;
+
+      if (!tenant || !unit) {
+        logger.warn(`Missing tenant or unit data for tenant_unit record ${tenantUnit.id}`);
+        console.log(`Missing tenant or unit data for tenant_unit record ${tenantUnit.id}`);
+        continue;
+      }
+
+      // Calculate the due date based on tenant's rent_due_day
+      const dueDayAsNumber = Number(tenantUnit.rent_due_day);
+      // Create a date for the current month with the tenant's due day
+      const dueDate = new Date(currentYear, currentMonth, dueDayAsNumber);
+      // Format the due date as YYYY-MM-DD
+      const dueDateFormatted = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(dueDayAsNumber).padStart(2, "0")}`;
+
+      console.log(`DEBUG: Tenant ${tenant.first_name} ${tenant.last_name} has rent due day ${dueDayAsNumber}, due date: ${dueDateFormatted}`);
+
+      // Check if a payment already exists for this tenant, unit and date
       const { data: existingPayment, error: checkError } = await supabase
         .from("rent_payments")
         .select("*")
+        .eq("tenant_id", tenant.id)
         .eq("unit_id", unit.id)
-        .eq("due_date", dueDate)
+        .eq("due_date", dueDateFormatted)
         .maybeSingle();
 
       if (checkError) {
-        logger.error(`Error checking existing payment for unit ${unit.id}: ${checkError.message}`);
-        console.log(`Error checking existing payment for unit ${unit.id}: ${checkError.message}`);
+        logger.error(`Error checking existing payment for tenant ${tenant.id}, unit ${unit.id}: ${checkError.message}`);
+        console.log(`Error checking existing payment for tenant ${tenant.id}, unit ${unit.id}: ${checkError.message}`);
         continue;
       }
 
@@ -163,33 +230,23 @@ export class RentService {
         continue;
       }
 
-      // Get tenant for this unit
-      const tenant = unit.tenants?.[0];
-
-      if (!tenant) {
-        logger.warn(`No tenant found for unit ${unit.id}`);
-        console.log(`No tenant found for unit ${unit.id}`);
-        continue;
-      }
 
       // Create a new payment record
       const newPayment: Omit<RentPayment, "id" | "created_at" | "updated_at"> = {
         tenant_id: tenant.id,
         unit_id: unit.id,
-        amount: unit.rent_amount,
-        due_date: dueDate,
+        amount: tenantUnit.rent_amount, // Use rent_amount from tenant_units
+        due_date: dueDateFormatted,
         payment_date: null,
         status: "pending",
         payment_method: null,
         interac_request_link: null
-      };
-
-      try {
+      }; try {
         // Generate Interac request link
         const interacRequestLink = await paymentService.generateInteracRequestLink(
           tenant.email,
           tenant.first_name,
-          unit.rent_amount,
+          tenantUnit.rent_amount,
           `Rent payment for unit ${unit.unit_number}`
         );
 

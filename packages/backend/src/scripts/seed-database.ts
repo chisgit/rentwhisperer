@@ -67,22 +67,16 @@ async function seedDatabase() {
       {
         unit_number: "101",
         property_id: property.id,
-        rent_amount: 1800,
-        rent_due_day: 1,
         lease_start: new Date().toISOString()
       },
       {
         unit_number: "102",
         property_id: property.id,
-        rent_amount: 1900,
-        rent_due_day: 1,
         lease_start: new Date().toISOString()
       },
       {
         unit_number: "201",
         property_id: property.id,
-        rent_amount: 2000,
-        rent_due_day: 1,
         lease_start: new Date().toISOString()
       }
     ];
@@ -118,6 +112,12 @@ async function seedDatabase() {
         last_name: "Brown",
         email: "michael.brown@example.com",
         phone: "+14165553333"
+      },
+      {
+        first_name: "Mock",
+        last_name: "Tenant",
+        email: "mock.tenant@example.com",
+        phone: "+15555555555"
       }
     ];
 
@@ -139,25 +139,31 @@ async function seedDatabase() {
         tenant_id: tenants[0].id,
         unit_id: units[0].id,
         is_primary: true,
-        lease_start: new Date().toISOString()
+        lease_start: new Date().toISOString(),
+        rent_amount: 1800,
+        rent_due_day: 1
       },
       {
         tenant_id: tenants[1].id,
         unit_id: units[1].id,
         is_primary: true,
-        lease_start: new Date().toISOString()
+        lease_start: new Date().toISOString(),
+        rent_amount: 1900,
+        rent_due_day: 1
       },
       {
         tenant_id: tenants[2].id,
         unit_id: units[2].id,
         is_primary: true,
-        lease_start: new Date().toISOString()
+        lease_start: new Date().toISOString(),
+        rent_amount: 2000,
+        rent_due_day: 1
       }
     ];
 
     const { data: tenantUnits, error: tenantUnitsError } = await supabase
       .from("tenant_units")
-      .insert(tenantUnitsData.map(tu => ({ ...tu, rent_amount: units.find(u => u.id === tu.unit_id)?.rent_amount, rent_due_day: units.find(u => u.id === tu.unit_id)?.rent_due_day })))
+      .insert(tenantUnitsData)
       .select();
 
     if (tenantUnitsError) {
@@ -165,6 +171,72 @@ async function seedDatabase() {
     }
 
     console.log("Tenant-unit relationships created:", tenantUnits);
+
+    // Create rent_payments
+    console.log("Creating rent payments...");
+
+    // Fetch tenant_units data to get rent_amount and rent_due_day
+    const { data: tenantUnitsDataForPayments, error: tenantUnitsErrorForPayments } = await supabase
+      .from("tenant_units")
+      .select("tenant_id, unit_id, rent_amount, rent_due_day");
+
+    if (tenantUnitsErrorForPayments) {
+      throw new Error(`Error fetching tenant_units data: ${tenantUnitsErrorForPayments.message}`);
+    }
+
+    const rentPaymentsData = [
+      {
+        tenant_id: tenants[0].id,
+        unit_id: units[0].id,
+        amount: tenantUnitsDataForPayments.find(tu => tu.tenant_id === tenants[0].id && tu.unit_id === units[0].id)?.rent_amount,
+        due_date: new Date(new Date().setDate(15)).toISOString().split('T')[0], // Due on the 15th of this month
+        payment_date: new Date(new Date().setDate(10)).toISOString().split('T')[0], // Paid on the 10th of this month
+        is_late: false,
+        status: "paid",
+        payment_method: "credit_card"
+      },
+      {
+        tenant_id: tenants[1].id,
+        unit_id: units[1].id,
+        amount: tenantUnitsDataForPayments.find(tu => tu.tenant_id === tenants[1].id && tu.unit_id === units[1].id)?.rent_amount,
+        due_date: new Date(new Date().setDate(5)).toISOString().split('T')[0], // Due on the 5th of this month
+        payment_date: new Date(new Date().setDate(10)).toISOString().split('T')[0], // Paid on the 10th of this month (late)
+        is_late: true,
+        status: "late",
+        payment_method: "e_transfer"
+      },
+      {
+        tenant_id: tenants[2].id,
+        unit_id: units[2].id,
+        amount: tenantUnitsDataForPayments.find(tu => tu.tenant_id === tenants[2].id && tu.unit_id === units[2].id)?.rent_amount,
+        due_date: new Date(new Date().setDate(25)).toISOString().split('T')[0], // Due on the 25th of this month
+        payment_date: null, // Not paid yet
+        is_late: false,
+        status: "pending",
+        payment_method: null
+      },
+      {
+        tenant_id: tenants[0].id,
+        unit_id: units[0].id,
+        amount: tenantUnitsDataForPayments.find(tu => tu.tenant_id === tenants[0].id && tu.unit_id === units[0].id)?.rent_amount,
+        due_date: new Date(new Date().setDate(15)).toISOString().split('T')[0], // Due on the 15th of this month
+        payment_date: new Date(new Date().setDate(10)).toISOString().split('T')[0], // Paid on the 10th of this month
+        is_late: false,
+        status: "partial",
+        payment_method: "credit_card"
+      }
+    ];
+
+    const { data: rentPayments, error: rentPaymentsError } = await supabase
+      .from("rent_payments")
+      .insert(rentPaymentsData)
+      .select();
+
+    if (rentPaymentsError) {
+      throw new Error(`Error creating rent payments: ${rentPaymentsError.message}`);
+    }
+
+    console.log("Rent payments created:", rentPayments);
 
     console.log("Database seeding completed successfully!");
   } catch (error) {

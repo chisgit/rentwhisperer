@@ -1,4 +1,5 @@
 import { logger } from "../utils/logger";
+import { supabase } from "../config/database";
 
 export class PaymentService {
   /**
@@ -60,6 +61,107 @@ export class PaymentService {
 
     // For the MVP, we'll just return true for successful payments
     return status === "success";
+  }
+
+  async createPayment(paymentData: any): Promise<any> {
+    logger.debug(`Creating payment with data: ${JSON.stringify(paymentData)}`);
+    console.log(`Creating payment with data: ${JSON.stringify(paymentData)}`);
+    // In a real implementation, this would create a new payment record in the database
+    // For now, we'll just return a mock payment object
+    const mockPayment = {
+      id: "payment-" + Date.now(),
+      ...paymentData,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    return mockPayment;
+  }
+
+  async getPayment(paymentId: string): Promise<any> {
+    logger.debug(`Getting payment with id: ${paymentId}`);
+    console.log(`Getting payment with id: ${paymentId}`);
+    // In a real implementation, this would retrieve the payment record from the database
+    // For now, we'll just return a mock payment object
+    const mockPayment = {
+      id: paymentId,
+      tenantId: "tenant-1",
+      unitId: "unit-1",
+      amount: 1800,
+      dueDate: new Date(),
+      paymentDate: new Date(),
+      isLate: false,
+      status: "paid",
+      paymentMethod: "credit_card",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    return mockPayment;
+  }
+
+  async updatePayment(paymentId: string, paymentData: any): Promise<any> {
+    logger.debug(`Updating payment with id: ${paymentId} and data: ${JSON.stringify(paymentData)}`);
+    console.log(`Updating payment with id: ${paymentId} and data: ${JSON.stringify(paymentData)}`);
+    // In a real implementation, this would update the payment record in the database
+    // For now, we'll just return a mock payment object
+    const mockPayment = {
+      id: paymentId,
+      ...paymentData,
+      updatedAt: new Date(),
+    };
+    return mockPayment;
+  }
+  async listPayments(tenantId?: string, unitId?: string): Promise<any[]> {
+    logger.debug(`Listing payments for tenantId: ${tenantId} and unitId: ${unitId}`);
+    console.log(`Listing payments for tenantId: ${tenantId} and unitId: ${unitId}`);
+
+    // Query both tenant and unit information with proper joins
+    let query = supabase
+      .from('rent_payments')
+      .select(`
+        *,
+        tenants (first_name, last_name),
+        units (unit_number)
+      `);
+
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    }
+    if (unitId) {
+      query = query.eq('unit_id', unitId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      logger.error(`Error fetching payments: ${error.message}`);
+      console.log(`Error fetching payments: ${error.message}`);
+      throw error;
+    }
+
+    // Transform the data to match the frontend expectations
+    // The frontend expects tenant_name and unit_number as direct properties
+    const formattedData = data.map((payment: any) => {
+      // Get tenant name from nested tenant object
+      const tenant_name = payment.tenants ?
+        `${payment.tenants.first_name} ${payment.tenants.last_name}` :
+        'Unknown Tenant';
+
+      // Get unit number from nested unit object
+      const unit_number = payment.units ? payment.units.unit_number : 'Unknown Unit';
+
+      // Add debug logging to see the data structure
+      console.log(`DEBUG: Processing payment ${payment.id} - tenant: ${tenant_name}, unit: ${unit_number}`);
+
+      // Return restructured payment with flattened properties
+      return {
+        ...payment,
+        tenant_name,
+        unit_number
+      };
+    });
+
+    console.log(`DEBUG: Returning ${formattedData.length} formatted payments`);
+    return formattedData;
   }
 }
 
