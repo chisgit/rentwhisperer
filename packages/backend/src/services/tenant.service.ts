@@ -1,50 +1,7 @@
-import { supabase, Tenant } from "../config/database";
 import { logger } from "../utils/logger";
-import { createClient } from "@supabase/supabase-js";
-
-// Create a supabase client with the service role key for admin operations
-// This bypasses RLS policies to allow tenant_units modifications
-const adminSupabase = createClient(
-  process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
-
-/**
- * Interface for the data structure returned by the Supabase query in getAllTenants and getTenantById.
- * This is needed because the nested select with aliasing is not fully inferred by the Supabase client types.
- */
-// Define the structure based on the actual query result, not extending Tenant
-interface TenantQueryResult {
-  id: string; // Assuming Tenant base fields are needed
-  first_name: string;
-  last_name: string;
-  email: string | null;
-  phone: string;
-  created_at: string;
-  updated_at: string;
-  tenant_units: {
-    unit_id: string;
-    is_primary: boolean;
-    lease_start: string;
-    lease_end: string | null;
-    rent_amount: string; // Supabase returns numeric as string
-    rent_due_day: number;
-    units: {
-      id: string;
-      unit_number: string;
-      property_id: string;
-      properties: {
-        id: string;
-        name: string;
-        address: string;
-        city: string;
-        province: string;
-        postal_code: string;
-      } | null;
-    } | null;
-  }[];
-}
-
+import { Tenant } from "../config/database";
+import { TenantQueryResult, supabase, adminSupabase, fetchAllTenantsQuery, fetchTenantByIdQuery, getAllUnitsQuery } from "./tenant.queries"; // Import TenantQueryResult, supabase, and adminSupabase from queries, and the new query functions
+import { transformTenantQueryResult } from "./tenant.utils"; // Import transformation utility
 
 /**
  * Get all tenants with unit and property information
@@ -52,33 +9,7 @@ interface TenantQueryResult {
 export async function getAllTenants(): Promise<Tenant[]> {
   try {
     console.log("Getting all tenants with unit and property info...");
-    // Join with tenant_units, units, and properties using the new schema structure
-    const { data, error } = await supabase
-      .from("tenants")
-      .select(`
-        *,
-        tenant_units!tenant_units_tenant_id_fkey (
-          unit_id,
-          is_primary,
-          lease_start,
-          lease_end,
-          rent_amount,
-          rent_due_day,
-          units:unit_id (
-            id,
-            unit_number,
-            property_id,
-            properties:property_id (
-              id,
-              name,
-              address,
-              city,
-              province,
-              postal_code
-            )
-          )
-        )
-      `) as { data: TenantQueryResult[] | null; error: any }; // Use the specific query result type
+    const { data, error } = await fetchAllTenantsQuery(); // Use the extracted query function
 
     if (error) {
       logger.error(`Error fetching tenants: ${error.message}`, error);
@@ -87,32 +18,7 @@ export async function getAllTenants(): Promise<Tenant[]> {
     }
 
     // Transform the data to match the expected Tenant format for the frontend
-    const transformedData: Tenant[] = data?.map((tenant): Tenant => {
-      // Find primary unit relationship (if any)
-      const primaryRelationship = tenant.tenant_units?.find((tu) => tu.is_primary) || tenant.tenant_units?.[0];
-      const primaryUnit = primaryRelationship?.units;
-      const properties = primaryUnit?.properties;
-
-      // Explicitly map to Tenant type, converting nulls to undefined for optional fields
-      return {
-        id: tenant.id,
-        first_name: tenant.first_name,
-        last_name: tenant.last_name,
-        email: tenant.email ?? '', // Convert null to empty string
-        phone: tenant.phone,
-        created_at: tenant.created_at,
-        updated_at: tenant.updated_at,
-        unit_id: primaryUnit?.id ?? undefined,
-        unit_number: primaryUnit?.unit_number ?? undefined,
-        property_name: properties?.name ?? undefined,
-        property_address: properties?.address ?? undefined,
-        property_city: properties?.city ?? undefined,
-        property_province: properties?.province ?? undefined,
-        property_postal_code: properties?.postal_code ?? undefined,
-        rent_amount: primaryRelationship?.rent_amount ? parseFloat(primaryRelationship.rent_amount) : undefined,
-        rent_due_day: primaryRelationship?.rent_due_day ?? undefined,
-      };
-    }) || [];
+    const transformedData: Tenant[] = data?.map(transformTenantQueryResult) || []; // Use the transformation utility
 
     return transformedData;
   } catch (err) {
@@ -136,35 +42,7 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
     const cacheBuster = new Date().getTime();
     console.log(`[getTenantById] Using cache buster: ${cacheBuster}`);
 
-    // Join with tenant_units, units and properties to get additional information
-    const { data, error } = await supabase
-      .from("tenants")
-      .select(`
-        *,
-        tenant_units!tenant_units_tenant_id_fkey (
-          unit_id,
-          is_primary,
-          lease_start,
-          lease_end,
-          rent_amount,
-          rent_due_day,
-          units:unit_id (
-            id,
-            unit_number,
-            property_id,
-            properties:property_id (
-              id,
-              name,
-              address,
-              city,
-              province,
-              postal_code
-            )
-          )
-        )
-      `)
-      .eq("id", id)
-      .single() as { data: TenantQueryResult | null; error: any }; // Use the specific query result type
+    const { data, error } = await fetchTenantByIdQuery(id); // Use the extracted query function
 
     if (error) {
       logger.error(`Error fetching tenant ${id}: ${error.message}`, error);
@@ -774,19 +652,16 @@ export async function updateTenant(id: string, tenantData: Partial<Tenant>): Pro
 export async function getAllUnits() {
   try {
     console.log("Getting all units with property info...");
-    // Get units with property information joined
-    const { data, error } = await supabase
-      .from("units")
-      .select(`
-        *,
-        properties:property_id (*)
-      `);
+    // Use the extracted query function
+    const { data, error } = await getAllUnitsQuery();
 
     if (error) {
       logger.error(`Error fetching units: ${error.message}`, error);
       console.log(`Error fetching units:`, error);
       throw new Error(`Failed to fetch units: ${error.message}`);
-    }    // Transform the data to include a display label for the dropdown
+    }
+
+    // Transform the data to include a display label for the dropdown
     const formattedUnits = data?.map(unit => ({
       id: unit.id,
       unit_number: unit.unit_number,

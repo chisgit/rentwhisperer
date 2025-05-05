@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import path from "path";
 import { logger } from "../utils/logger";
+import { Database } from "../types/database.types";
 
 // Try loading environment variables from multiple locations
 // First try the root project .env
@@ -20,7 +21,7 @@ if (!supabaseUrl || !supabaseKey) {
 }
 
 // Create client with anon key for regular operations
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient<Database>(supabaseUrl, supabaseKey);
 
 // Create a service role client that can bypass RLS if service key is available
 export const supabaseAdmin = supabaseServiceKey
@@ -34,8 +35,8 @@ export interface Tenant {
   last_name: string;
   email: string;
   phone: string; // WhatsApp-enabled phone number
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
   // The following fields are not stored in the tenants table but derived through relationships
   unit_id?: string | null; // Derived from tenant_units relationship
   property_name?: string; // Derived from units->properties relationship
@@ -111,3 +112,5 @@ export interface Notification {
   created_at: string;
   updated_at: string;
 }
+
+export type { Database };
