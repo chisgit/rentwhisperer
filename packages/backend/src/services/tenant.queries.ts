@@ -1,6 +1,4 @@
-import { supabase } from "../config/database";
-import { Tenant } from "../types/tenant.types"; // Adjust this if Tenant is defined elsewhere
-
+import { supabase, Tenant } from "../config/database";
 import { logger } from "../utils/logger";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
@@ -17,7 +15,7 @@ const adminSupabase: SupabaseClient = createClient(
  */
 // Define the structure based on the actual query result, not extending Tenant
 interface TenantQueryResult {
-  id: string; // Assuming Tenant base fields are needed
+  id: string;
   first_name: string;
   last_name: string;
   email: string | null;
@@ -29,7 +27,7 @@ interface TenantQueryResult {
     is_primary: boolean;
     lease_start: string;
     lease_end: string | null;
-    rent_amount: string; // Supabase returns numeric as string
+    rent_amount: string;
     rent_due_day: number;
     units: {
       id: string;
@@ -90,10 +88,6 @@ export async function fetchAllTenantsQuery(): Promise<{ data: TenantQueryResult[
   return { data, error };
 }
 
-
-// Export the supabase and adminSupabase clients and types if needed elsewhere, or keep them internal
-export { supabase, adminSupabase, TenantQueryResult, Tenant };
-
 /**
  * Fetches a single tenant by ID with their associated unit and property information.
  * @param id The ID of the tenant to fetch.
@@ -125,62 +119,181 @@ export async function fetchTenantByIdQuery(id: string): Promise<{ data: TenantQu
             postal_code
           )
         )
-      )q("id", id)
-    `){ data: TenantQueryResult | null; error: any
-};
+      )
+    `)
     .eq("id", id)
-  .single() as { data: TenantQueryResult | null; error: any }; if (error) {
-    or(`Error in fetchTenantByIdQuery for tenant ${id}: ${error.message}`, error);
-    if (error) {
-      logger.error(`Error in fetchTenantByIdQuery for tenant ${id}: ${error.message}`, error);
-      console.log(`Error in fetchTenantByIdQuery for tenant ${id}:`, error); e.log(`fetchTenantByIdQuery successful for tenant ${id}.`);
-    } else {
-      console.log(`fetchTenantByIdQuery successful for tenant ${id}.`);
-    } return { data, error };
+    .single() as { data: TenantQueryResult | null; error: any };
 
-    return { data, error };
-  }/**
-Interface for the data structure returned by the Supabase query in getAllUnitsQuery.
+  if (error) {
+    logger.error(`Error in fetchTenantByIdQuery for tenant ${id}: ${error.message}`, error);
+    console.log(`Error in fetchTenantByIdQuery for tenant ${id}:`, error);
+  } else {
+    console.log(`fetchTenantByIdQuery successful for tenant ${id}.`);
+  }
+
+  return { data, error };
+}
+
 /**
- * Interface for the data structure returned by the Supabase query in getAllUnitsQuery.erface UnitQueryResult {
+ * Interface for the data structure returned by the Supabase query in getAllUnitsQuery.
  */
-interface UnitQueryResult {: string;
+interface UnitQueryResult {
   id: string;
   unit_number: string;
   property_id: string;
   properties: {
-    g;
-    id: string; ng;
+    id: string;
     name: string;
-    address: string; ing;
-    city: string; ng;
+    address: string;
+    city: string;
     province: string;
     postal_code: string;
   } | null;
-}/**
-Fetches all units with their associated property information.
-/**operty data or an error.
+}
+
+/**
  * Fetches all units with their associated property information.
- * @returns A promise that resolves to an array of units with property data or an error.ort async function getAllUnitsQuery(): Promise<{ data: UnitQueryResult[] | null; error: any }> {
+ * @returns A promise that resolves to an array of units with property data or an error.
  */
 export async function getAllUnitsQuery(): Promise<{ data: UnitQueryResult[] | null; error: any }> {
   console.log("Executing getAllUnitsQuery...");
   const { data, error } = await supabase
     .from("units")
-    .select(`operties:property_id (*)
+    .select(`
       *,
       properties:property_id (*)
-    `); if (error) {
-    or(`Error in getAllUnitsQuery: ${error.message}`, error);
-    if (error) {
-      logger.error(`Error in getAllUnitsQuery: ${error.message}`, error);
-      console.log(`Error in getAllUnitsQuery:`, error); e.log(`getAllUnitsQuery successful, fetched ${data?.length || 0} units.`);
-    } else {
-      console.log(`getAllUnitsQuery successful, fetched ${data?.length || 0} units.`);
-    } return { data, error };
+    `);
+
+  if (error) {
+    logger.error(`Error in getAllUnitsQuery: ${error.message}`, error);
+    console.log(`Error in getAllUnitsQuery:`, error);
+  } else {
+    console.log(`getAllUnitsQuery successful, fetched ${data?.length || 0} units.`);
   }
 
+  return { data, error };
+}
 
+/**
+ * Creates a new tenant in the database
+ * @param tenant The tenant data to create
+ * @returns A promise that resolves to the created tenant data or an error
+ */
+export async function createTenantQuery(tenant: Omit<Tenant, 'id'>): Promise<{ data: Tenant | null; error: any }> {
+  console.log("Executing createTenantQuery...");
+  const { data, error } = await supabase
+    .from("tenants")
+    .insert(tenant)
+    .select();
 
+  if (error) {
+    logger.error(`Error in createTenantQuery: ${error.message}`, error);
+    console.log(`Error in createTenantQuery:`, error);
+    return { data: null, error };
+  }
 
-} return { data, error };
+  return { data: data[0] || null, error };
+}
+
+/**
+ * Creates or updates a tenant-unit relationship
+ * @param tenantId ID of the tenant
+ * @param unitId ID of the unit
+ * @param isPrimary Whether this is the primary unit for this tenant
+ * @param rentAmount Rent amount for this unit
+ * @param rentDueDay Day of the month rent is due
+ * @returns A promise that resolves to the created or updated relationship
+ */
+export async function createOrUpdateTenantUnitQuery(
+  tenantId: string,
+  unitId: string,
+  isPrimary: boolean = true,
+  rentAmount: number = 0,
+  rentDueDay: number = 1,
+  leaseStart?: string
+): Promise<{ data: any, error: any }> {
+  console.log(`Creating/updating tenant-unit relationship for tenant ${tenantId}, unit ${unitId}`);
+
+  // Check if relationship already exists
+  const { data: existing, error: checkError } = await adminSupabase
+    .from('tenant_units')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('unit_id', unitId)
+    .maybeSingle();
+
+  if (checkError) {
+    logger.error(`Error checking tenant-unit relationship: ${checkError.message}`, checkError);
+    return { data: null, error: checkError };
+  }
+
+  const tenantUnitData = {
+    tenant_id: tenantId,
+    unit_id: unitId,
+    is_primary: isPrimary,
+    lease_start: leaseStart || new Date().toISOString(),
+    rent_amount: rentAmount,
+    rent_due_day: rentDueDay
+  };
+
+  if (existing) {
+    // Update existing relationship
+    console.log(`Updating existing tenant-unit relationship ID: ${existing.id}`);
+    return adminSupabase
+      .from('tenant_units')
+      .update(tenantUnitData)
+      .eq('tenant_id', tenantId)
+      .eq('unit_id', unitId)
+      .select();
+  } else {
+    // Create new relationship
+    console.log(`Creating new tenant-unit relationship`);
+    return adminSupabase
+      .from('tenant_units')
+      .insert([tenantUnitData])
+      .select();
+  }
+}
+
+/**
+ * Fetches direct tenant-unit data for a specific tenant
+ * @param tenantId The ID of the tenant
+ * @returns A promise that resolves to the tenant-unit data or error
+ */
+export async function fetchTenantUnitsByTenantId(
+  tenantId: string
+): Promise<{ data: any, error: any }> {
+  console.log(`Fetching tenant-units for tenant ID: ${tenantId}`);
+  return adminSupabase
+    .from('tenant_units')
+    .select(`
+      *,
+      units:unit_id (
+        *,
+        properties:property_id (*)
+      )
+    `)
+    .eq('tenant_id', tenantId)
+    .order('is_primary', { ascending: false });
+}
+
+/**
+ * Updates tenant information
+ * @param tenantId The ID of the tenant to update
+ * @param tenantData The data to update
+ * @returns A promise that resolves to the updated tenant data or error
+ */
+export async function updateTenantQuery(
+  tenantId: string,
+  tenantData: Partial<Tenant>
+): Promise<{ data: any, error: any }> {
+  console.log(`Updating tenant ${tenantId} with data:`, tenantData);
+  return adminSupabase
+    .from('tenants')
+    .update(tenantData)
+    .eq('id', tenantId)
+    .select();
+}
+
+// Removed redundant exports
+export { TenantQueryResult, UnitQueryResult };
