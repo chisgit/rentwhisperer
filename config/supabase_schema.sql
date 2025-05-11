@@ -1,17 +1,12 @@
 -- Schema for Rent Whisperer Supabase Database
--- Updated and consolidated master schema file
+-- Updated to match the provided schema diagram (direct tenant-to-unit relationship)
 
--- DATA ARCHITECTURE OVERVIEW:
--- 1. tenants table: Stores tenant personal information only (name, contact info)
--- 2. units table: Stores unit information and default rent settings (default_rent_amount, default_rent_due_day)
---    but NOT lease dates (those belong only in tenant_units)
--- 3. properties table: Stores property information (address, city, province, etc.)
--- 4. tenant_units table: Junction table that links tenants to units with:
---    - Tenant-specific rent_amount and rent_due_day (can override unit defaults)
---    - Lease periods (lease_start, lease_end) that apply to specific tenant-unit relationships
---    - Primary unit flag (is_primary) to indicate a tenant's main residence
--- 5. All property and unit information should be derived through relationships, not duplicated
---    in the tenants table
+-- DATA ARCHITECTURE OVERVIEW (Updated):
+-- 1. tenants table: Stores tenant personal information and a direct link to their unit (unit_id)
+-- 2. units table: Stores unit information including rent_amount, rent_due_day, lease_start, lease_end
+-- 3. properties table: Stores property information
+-- 4. rent_payments table: Stores payment records, linked to tenants and units.
+-- 5. All property information should be derived through relationships.
 
 -- Enable UUID extension
 create extension if not exists "uuid-ossp";
@@ -44,55 +39,41 @@ create table if not exists public.properties (
 );
 
 -- Create units table (depends on properties)
+-- Includes rent_amount, rent_due_day, lease_start, lease_end as per the provided schema diagram
 create table if not exists public.units (
   id uuid default uuid_generate_v4() primary key,
   unit_number text not null,
   property_id uuid not null,
+  rent_amount numeric, -- As per image
+  rent_due_day integer, -- As per image
+  lease_start timestamp with time zone, -- As per image
+  lease_end timestamp with time zone, -- As per image
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null
 );
 
--- Create tenants table (independent entity)
+-- Create tenants table (depends on units)
+-- Includes a direct unit_id foreign key
 create table if not exists public.tenants (
   id uuid default uuid_generate_v4() primary key,
   first_name text not null,
   last_name text not null,
   email text,
   phone text not null,
+  unit_id uuid, -- Foreign key to units table
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null
 );
-
-
--- Create tenant_unit junction table for M:N relationship
--- This table stores the relationship between tenants and units, including:
--- - Tenant-specific rent amounts and due dates (which can differ from the unit's default)
--- - Lease start and end dates
--- - Which unit is the tenant's primary residence
-create table if not exists public.tenant_units (
-  tenant_id uuid not null references public.tenants(id),
-  unit_id uuid not null references public.units(id),
-  is_primary boolean not null default true,
-  lease_start timestamp with time zone not null,
-  lease_end timestamp with time zone,
-  rent_amount numeric not null, -- Tenant-specific rent amount
-  rent_due_day integer not null, -- Tenant-specific rent due day
-  created_at timestamp with time zone default now() not null,
-  updated_at timestamp with time zone default now() not null,
-  primary key (tenant_id, unit_id)
-);
-
-
 
 -- Create rent_payments table
 create table if not exists public.rent_payments (
   id uuid default uuid_generate_v4() primary key,
   tenant_id uuid not null,
-  unit_id uuid not null,
+  unit_id uuid not null, -- Kept as per image, might be redundant if tenant is tied to one unit
   amount numeric not null,
   due_date date not null,
   payment_date date,
-  is_late boolean default false,
+  is_late boolean default false, -- Consider deriving this or ensuring consistency with status
   status text not null check (status in ('pending', 'paid', 'late', 'partial')),
   payment_method text,
   interac_request_link text,
@@ -108,8 +89,11 @@ create table if not exists public.notifications (
   type text not null check (type in ('rent_due', 'rent_late', 'receipt', 'form_n4', 'form_l1')),
   channel text not null check (channel in ('whatsapp', 'email')),
   status text not null check (status in ('pending', 'sent', 'delivered', 'read', 'failed')),
-  message_id text,
-  sent_at timestamp with time zone,
+  message_id text, -- As per image (mess... truncated)
+  sent_at timestamp with time zone, -- As per image
+  -- delivered_at, read_at were in image but not original schema, adding them
+  delivered_at timestamp with time zone,
+  read_at timestamp with time zone,
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null
 );
@@ -128,39 +112,134 @@ create table if not exists public.incoming_messages (
 );
 
 -- Add foreign key constraints after all tables are created
+
 -- Property to landlord
-alter table public.properties
-  add constraint properties_landlord_id_fkey
-  foreign key (landlord_id)
-  references public.landlords(id);
+DO $$
+BEGIN
+  RAISE NOTICE 'Attempting to add constraint properties_landlord_id_fkey if it does not exist.';
+  IF NOT EXISTS (
+    SELECT 1
+    FROM   pg_constraint
+    WHERE  conname = 'properties_landlord_id_fkey'
+    AND    conrelid = 'public.properties'::regclass
+  ) THEN
+    ALTER TABLE public.properties
+      ADD CONSTRAINT properties_landlord_id_fkey
+      FOREIGN KEY (landlord_id)
+      REFERENCES public.landlords(id);
+    RAISE NOTICE 'Constraint properties_landlord_id_fkey added.';
+  ELSE
+    RAISE NOTICE 'Constraint properties_landlord_id_fkey already exists. Skipping.';
+  END IF;
+  RAISE NOTICE 'Finished processing constraint properties_landlord_id_fkey.';
+END;
+$$;
 
 -- Units to properties
-alter table public.units
-  add constraint units_property_id_fkey
-  foreign key (property_id)
-  references public.properties(id);
+DO $$
+BEGIN
+  RAISE NOTICE 'Attempting to add constraint units_property_id_fkey if it does not exist.';
+  IF NOT EXISTS (
+    SELECT 1
+    FROM   pg_constraint
+    WHERE  conname = 'units_property_id_fkey'
+    AND    conrelid = 'public.units'::regclass
+  ) THEN
+    ALTER TABLE public.units
+      ADD CONSTRAINT units_property_id_fkey
+      FOREIGN KEY (property_id)
+      REFERENCES public.properties(id);
+    RAISE NOTICE 'Constraint units_property_id_fkey added.';
+  ELSE
+    RAISE NOTICE 'Constraint units_property_id_fkey already exists. Skipping.';
+  END IF;
+  RAISE NOTICE 'Finished processing constraint units_property_id_fkey.';
+END;
+$$;
 
--- Tenant_units junction table constraints
-alter table public.tenant_units
-  add constraint tenant_units_tenant_id_fkey
-  foreign key (tenant_id)
-  references public.tenants(id) ON DELETE CASCADE;
+-- Ensure unit_id column exists in tenants table before adding foreign key
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM   information_schema.columns
+    WHERE  table_schema = 'public'
+    AND    table_name = 'tenants'
+    AND    column_name = 'unit_id'
+  ) THEN
+    RAISE NOTICE 'Column unit_id does not exist in public.tenants. Adding it.';
+    ALTER TABLE public.tenants ADD COLUMN unit_id uuid;
+    RAISE NOTICE 'Column unit_id added to public.tenants.';
+  ELSE
+    RAISE NOTICE 'Column unit_id already exists in public.tenants. Skipping add column.';
+  END IF;
+END;
+$$;
 
-alter table public.tenant_units
-  add constraint tenant_units_unit_id_fkey
-  foreign key (unit_id)
-  references public.units(id);
+-- Tenants to Units (New direct relationship)
+DO $$
+BEGIN
+  RAISE NOTICE 'Attempting to add constraint tenants_unit_id_fkey if it does not exist.';
+  IF NOT EXISTS (
+    SELECT 1
+    FROM   pg_constraint
+    WHERE  conname = 'tenants_unit_id_fkey'
+    AND    conrelid = 'public.tenants'::regclass
+  ) THEN
+    ALTER TABLE public.tenants
+      ADD CONSTRAINT tenants_unit_id_fkey
+      FOREIGN KEY (unit_id)
+      REFERENCES public.units(id);
+    RAISE NOTICE 'Constraint tenants_unit_id_fkey added.';
+  ELSE
+    RAISE NOTICE 'Constraint tenants_unit_id_fkey already exists. Skipping.';
+  END IF;
+  RAISE NOTICE 'Finished processing constraint tenants_unit_id_fkey.';
+END;
+$$;
 
 -- Rent payments constraints
-alter table public.rent_payments
-  add constraint rent_payments_tenant_id_fkey
-  foreign key (tenant_id)
-  references public.tenants(id);
+DO $$
+BEGIN
+  RAISE NOTICE 'Attempting to add constraint rent_payments_tenant_id_fkey if it does not exist.';
+  IF NOT EXISTS (
+    SELECT 1
+    FROM   pg_constraint
+    WHERE  conname = 'rent_payments_tenant_id_fkey'
+    AND    conrelid = 'public.rent_payments'::regclass
+  ) THEN
+    ALTER TABLE public.rent_payments
+      ADD CONSTRAINT rent_payments_tenant_id_fkey
+      FOREIGN KEY (tenant_id)
+      REFERENCES public.tenants(id);
+    RAISE NOTICE 'Constraint rent_payments_tenant_id_fkey added.';
+  ELSE
+    RAISE NOTICE 'Constraint rent_payments_tenant_id_fkey already exists. Skipping.';
+  END IF;
+  RAISE NOTICE 'Finished processing constraint rent_payments_tenant_id_fkey.';
+END;
+$$;
 
-alter table public.rent_payments
-  add constraint rent_payments_unit_id_fkey
-  foreign key (unit_id)
-  references public.units(id);
+DO $$
+BEGIN
+  RAISE NOTICE 'Attempting to add constraint rent_payments_unit_id_fkey if it does not exist.';
+  IF NOT EXISTS (
+    SELECT 1
+    FROM   pg_constraint
+    WHERE  conname = 'rent_payments_unit_id_fkey'
+    AND    conrelid = 'public.rent_payments'::regclass
+  ) THEN
+    ALTER TABLE public.rent_payments
+      ADD CONSTRAINT rent_payments_unit_id_fkey -- This FK still makes sense
+      FOREIGN KEY (unit_id)
+      REFERENCES public.units(id);
+    RAISE NOTICE 'Constraint rent_payments_unit_id_fkey added.';
+  ELSE
+    RAISE NOTICE 'Constraint rent_payments_unit_id_fkey already exists. Skipping.';
+  END IF;
+  RAISE NOTICE 'Finished processing constraint rent_payments_unit_id_fkey.';
+END;
+$$;
 
 -- Create functions for automatic updated_at timestamp
 create or replace function public.update_updated_at_column()
@@ -184,25 +263,25 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Construct and execute dynamic SQL update 
+  -- Construct and execute dynamic SQL update
   query := 'UPDATE public.tenants SET ' || update_fields || ', updated_at = NOW() WHERE id = ''' || tenant_id || '''';
-  
+
   -- Log the query for debugging
   RAISE NOTICE 'Executing query: %', query;
-  
+
   -- Execute the query
   EXECUTE query;
-  
+
   -- Check if update was successful
   GET DIAGNOSTICS rows_affected = ROW_COUNT;
-  
+
   -- Return true if at least one row was updated
   IF rows_affected > 0 THEN
     RETURN QUERY SELECT TRUE, 'Successfully updated ' || rows_affected || ' row(s)', query;
   ELSE
     RETURN QUERY SELECT FALSE, 'Update executed but no rows affected', query;
   END IF;
-  
+
   RETURN;
 EXCEPTION WHEN OTHERS THEN
   RETURN QUERY SELECT FALSE, 'Update failed: ' || SQLERRM, query;
@@ -216,10 +295,10 @@ RETURNS BOOLEAN AS $$
 BEGIN
   -- Log the query for debugging
   RAISE NOTICE 'Executing SQL: %', sql;
-  
+
   -- Execute the query
   EXECUTE sql;
-  
+
   -- Return true to indicate success
   RETURN TRUE;
 EXCEPTION WHEN OTHERS THEN
@@ -229,42 +308,108 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Create triggers for updating updated_at
-create trigger update_tenants_updated_at
-  before update on public.tenants
-  for each row execute function public.update_updated_at_column();
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgname = 'update_tenants_updated_at'
+  ) THEN
+    create trigger update_tenants_updated_at
+      before update on public.tenants
+      for each row execute function public.update_updated_at_column();
+  END IF;
+END;
+$$;
 
-create trigger update_properties_updated_at
-  before update on public.properties
-  for each row execute function public.update_updated_at_column();
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgname = 'update_properties_updated_at'
+  ) THEN
+    create trigger update_properties_updated_at
+      before update on public.properties
+      for each row execute function public.update_updated_at_column();
+  END IF;
+END;
+$$;
 
-create trigger update_units_updated_at
-  before update on public.units
-  for each row execute function public.update_updated_at_column();
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgname = 'update_units_updated_at'
+  ) THEN
+    create trigger update_units_updated_at
+      before update on public.units
+      for each row execute function public.update_updated_at_column();
+  END IF;
+END;
+$$;
 
-create trigger update_tenant_units_updated_at
-  before update on public.tenant_units
-  for each row execute function public.update_updated_at_column();
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgname = 'update_rent_payments_updated_at'
+  ) THEN
+    create trigger update_rent_payments_updated_at
+      before update on public.rent_payments
+      for each row execute function public.update_updated_at_column();
+  END IF;
+END;
+$$;
 
-create trigger update_rent_payments_updated_at
-  before update on public.rent_payments
-  for each row execute function public.update_updated_at_column();
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgname = 'update_notifications_updated_at'
+  ) THEN
+    create trigger update_notifications_updated_at
+      before update on public.notifications
+      for each row execute function public.update_updated_at_column();
+  END IF;
+END;
+$$;
 
-create trigger update_notifications_updated_at
-  before update on public.notifications
-  for each row execute function public.update_updated_at_column();
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgname = 'update_incoming_messages_updated_at'
+  ) THEN
+    create trigger update_incoming_messages_updated_at
+      before update on public.incoming_messages
+      for each row execute function public.update_updated_at_column();
+  END IF;
+END;
+$$;
 
-create trigger update_incoming_messages_updated_at
-  before update on public.incoming_messages
-  for each row execute function public.update_updated_at_column();
-
-create trigger update_landlords_updated_at
-  before update on public.landlords
-  for each row execute function public.update_updated_at_column();
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgname = 'update_landlords_updated_at'
+  ) THEN
+    create trigger update_landlords_updated_at
+      before update on public.landlords
+      for each row execute function public.update_updated_at_column();
+  END IF;
+END;
+$$;
 
 -- Create indexes for performance
-create index if not exists tenant_units_tenant_id_idx on public.tenant_units(tenant_id);
-create index if not exists tenant_units_unit_id_idx on public.tenant_units(unit_id);
+-- Removed indexes for tenant_units
 create index if not exists units_property_id_idx on public.units(property_id);
+create index if not exists tenants_unit_id_idx on public.tenants(unit_id); -- New index
 create index if not exists rent_payments_tenant_id_idx on public.rent_payments(tenant_id);
 create index if not exists rent_payments_unit_id_idx on public.rent_payments(unit_id);
 create index if not exists rent_payments_due_date_idx on public.rent_payments(due_date);
@@ -279,52 +424,242 @@ create index if not exists incoming_messages_processed_idx on public.incoming_me
 -- Note: These would typically be more restrictive in a production environment
 
 -- Tenants policies
-alter table public.tenants enable row level security;
-create policy "Enable read access for all users" on public.tenants for select using (true);
-create policy "Enable insert for authenticated users" on public.tenants for insert with check (auth.role() = 'authenticated');
-create policy "Enable update for authenticated users" on public.tenants for update using (auth.role() = 'authenticated');
+DO $$
+BEGIN
+  alter table public.tenants enable row level security;
+  
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'tenants'
+    AND policyname = 'Enable read access for all users'
+  ) THEN
+    create policy "Enable read access for all users" on public.tenants for select using (true);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'tenants'
+    AND policyname = 'Enable insert for authenticated users'
+  ) THEN
+    create policy "Enable insert for authenticated users" on public.tenants for insert with check (auth.role() = 'authenticated');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'tenants'
+    AND policyname = 'Enable update for authenticated users'
+  ) THEN
+    create policy "Enable update for authenticated users" on public.tenants for update using (auth.role() = 'authenticated');
+  END IF;
+END;
+$$;
 
 -- Properties policies
-alter table public.properties enable row level security;
-create policy "Enable read access for all users" on public.properties for select using (true);
-create policy "Enable insert for authenticated users" on public.properties for insert with check (auth.role() = 'authenticated');
-create policy "Enable update for authenticated users" on public.properties for update using (auth.role() = 'authenticated');
+DO $$
+BEGIN
+  alter table public.properties enable row level security;
+  
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'properties'
+    AND policyname = 'Enable read access for all users'
+  ) THEN
+    create policy "Enable read access for all users" on public.properties for select using (true);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'properties'
+    AND policyname = 'Enable insert for authenticated users'
+  ) THEN
+    create policy "Enable insert for authenticated users" on public.properties for insert with check (auth.role() = 'authenticated');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'properties'
+    AND policyname = 'Enable update for authenticated users'
+  ) THEN
+    create policy "Enable update for authenticated users" on public.properties for update using (auth.role() = 'authenticated');
+  END IF;
+END;
+$$;
 
 -- Units policies
-alter table public.units enable row level security;
-create policy "Enable read access for all users" on public.units for select using (true);
-create policy "Enable insert for authenticated users" on public.units for insert with check (auth.role() = 'authenticated');
-create policy "Enable update for authenticated users" on public.units for update using (auth.role() = 'authenticated');
+DO $$
+BEGIN
+  alter table public.units enable row level security;
+  
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'units'
+    AND policyname = 'Enable read access for all users'
+  ) THEN
+    create policy "Enable read access for all users" on public.units for select using (true);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'units'
+    AND policyname = 'Enable insert for authenticated users'
+  ) THEN
+    create policy "Enable insert for authenticated users" on public.units for insert with check (auth.role() = 'authenticated');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'units'
+    AND policyname = 'Enable update for authenticated users'
+  ) THEN
+    create policy "Enable update for authenticated users" on public.units for update using (auth.role() = 'authenticated');
+  END IF;
+END;
+$$;
 
 -- Rent payments policies
-alter table public.rent_payments enable row level security;
-create policy "Enable read access for all users" on public.rent_payments for select using (true);
-create policy "Enable insert for authenticated users" on public.rent_payments for insert with check (auth.role() = 'authenticated');
-create policy "Enable update for authenticated users" on public.rent_payments for update using (auth.role() = 'authenticated');
+DO $$
+BEGIN
+  alter table public.rent_payments enable row level security;
+  
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'rent_payments'
+    AND policyname = 'Enable read access for all users'
+  ) THEN
+    create policy "Enable read access for all users" on public.rent_payments for select using (true);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'rent_payments'
+    AND policyname = 'Enable insert for authenticated users'
+  ) THEN
+    create policy "Enable insert for authenticated users" on public.rent_payments for insert with check (auth.role() = 'authenticated');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'rent_payments'
+    AND policyname = 'Enable update for authenticated users'
+  ) THEN
+    create policy "Enable update for authenticated users" on public.rent_payments for update using (auth.role() = 'authenticated');
+  END IF;
+END;
+$$;
 
 -- Notifications policies
-alter table public.notifications enable row level security;
-create policy "Enable read access for all users" on public.notifications for select using (true);
-create policy "Enable insert for authenticated users" on public.notifications for insert with check (auth.role() = 'authenticated');
-create policy "Enable update for authenticated users" on public.notifications for update using (auth.role() = 'authenticated');
+DO $$
+BEGIN
+  alter table public.notifications enable row level security;
+  
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'notifications'
+    AND policyname = 'Enable read access for all users'
+  ) THEN
+    create policy "Enable read access for all users" on public.notifications for select using (true);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'notifications'
+    AND policyname = 'Enable insert for authenticated users'
+  ) THEN
+    create policy "Enable insert for authenticated users" on public.notifications for insert with check (auth.role() = 'authenticated');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'notifications'
+    AND policyname = 'Enable update for authenticated users'
+  ) THEN
+    create policy "Enable update for authenticated users" on public.notifications for update using (auth.role() = 'authenticated');
+  END IF;
+END;
+$$;
 
 -- Incoming messages policies
-alter table public.incoming_messages enable row level security;
-create policy "Enable read access for all users" on public.incoming_messages for select using (true);
-create policy "Enable insert for all users" on public.incoming_messages for insert with check (true);
-create policy "Enable update for authenticated users" on public.incoming_messages for update using (auth.role() = 'authenticated');
+DO $$
+BEGIN
+  alter table public.incoming_messages enable row level security;
+  
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'incoming_messages'
+    AND policyname = 'Enable read access for all users'
+  ) THEN
+    create policy "Enable read access for all users" on public.incoming_messages for select using (true);
+  END IF;
 
--- Tenant Units policies
-alter table public.tenant_units enable row level security;
-create policy "Enable read access for all users" on public.tenant_units for select using (true);
-create policy "Enable insert for authenticated users" on public.tenant_units for insert with check (auth.role() = 'authenticated');
-create policy "Enable update for authenticated users" on public.tenant_units for update using (auth.role() = 'authenticated');
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'incoming_messages'
+    AND policyname = 'Enable insert for all users'
+  ) THEN
+    create policy "Enable insert for all users" on public.incoming_messages for insert with check (true);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'incoming_messages'
+    AND policyname = 'Enable update for authenticated users'
+  ) THEN
+    create policy "Enable update for authenticated users" on public.incoming_messages for update using (auth.role() = 'authenticated');
+  END IF;
+END;
+$$;
 
 -- Landlords policies
-alter table public.landlords enable row level security;
-create policy "Enable read access for all users" on public.landlords for select using (true);
-create policy "Enable insert for authenticated users" on public.landlords for insert with check (auth.role() = 'authenticated');
-create policy "Enable update for authenticated users" on public.landlords for update using (auth.role() = 'authenticated');
+DO $$
+BEGIN
+  alter table public.landlords enable row level security;
+  
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'landlords'
+    AND policyname = 'Enable read access for all users'
+  ) THEN
+    create policy "Enable read access for all users" on public.landlords for select using (true);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'landlords'
+    AND policyname = 'Enable insert for authenticated users'
+  ) THEN
+    create policy "Enable insert for authenticated users" on public.landlords for insert with check (auth.role() = 'authenticated');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'landlords'
+    AND policyname = 'Enable update for authenticated users'
+  ) THEN
+    create policy "Enable update for authenticated users" on public.landlords for update using (auth.role() = 'authenticated');
+  END IF;
+END;
+$$;
 
 -- Grant permissions for custom functions
 GRANT EXECUTE ON FUNCTION update_tenant_direct(UUID, TEXT) TO authenticated;
@@ -335,33 +670,12 @@ COMMENT ON FUNCTION update_tenant_direct(UUID, TEXT) IS 'Directly updates tenant
 GRANT EXECUTE ON FUNCTION execute_sql(TEXT) TO service_role;
 COMMENT ON FUNCTION execute_sql(TEXT) IS 'Executes raw SQL. WARNING: Only use in secured environments.';
 
--- Drop default_rent_amount and default_rent_due_day columns from the units table
--- We're storing this information exclusively in the tenant_units table to avoid redundancy
-DO $$
-BEGIN
-    -- Check if the columns exist before dropping them
-    IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-        AND table_name = 'units'
-        AND column_name = 'default_rent_amount'
-    ) THEN
-        ALTER TABLE public.units DROP COLUMN IF EXISTS default_rent_amount;
-        RAISE NOTICE 'Dropped default_rent_amount column from units table';
-    END IF;
-
-    IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-        AND table_name = 'units'
-        AND column_name = 'default_rent_due_day'
-    ) THEN
-        ALTER TABLE public.units DROP COLUMN IF EXISTS default_rent_due_day;
-        RAISE NOTICE 'Dropped default_rent_due_day column from units table';
-    END IF;
-END $$;
+-- Removed the DO block that dropped columns from units, as these columns are now part of the units table definition.
 
 -- Grant all privileges to the service role
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO service_role;
+
+-- Grant SELECT access to the anon role for all tables in the public schema
+-- This is necessary for the frontend to be able to read data via the API
+GRANT USAGE ON SCHEMA public TO anon;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;

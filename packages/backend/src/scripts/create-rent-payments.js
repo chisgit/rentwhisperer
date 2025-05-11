@@ -1,5 +1,6 @@
 // Script to create rent payments for all tenant_units for the current month
-require('dotenv').config({ path: '../../.env' });
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
 const { createClient } = require('@supabase/supabase-js');
 

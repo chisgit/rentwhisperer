@@ -51,6 +51,18 @@ cp packages/pdf-service/.env.example packages/pdf-service/.env
 npm run dev
 ```
 
+## Custom Development Tools
+
+### Browser Console Viewer
+
+This project includes a custom MCP (Model Context Protocol) server named `browser-console-viewer`. This server provides a tool that allows for capturing console output from a web browser, which is useful for debugging front-end applications or HTML pages.
+
+- **Tool Name**: `view_browser_console`
+- **Purpose**: To launch a headless browser, navigate to a specified URL (local or remote), and retrieve all messages logged to the browser's console (e.g., `console.log`, errors, warnings).
+- **Usage**: If you need to inspect the browser console output for a particular page (e.g., `console-logger.html` or a running development server), you can ask Cline (the AI assistant) to use the `view_browser_console` tool. Provide the URL you want to inspect.
+
+This tool was created to assist in diagnosing issues that are only visible in the browser's console and not in server-side or terminal logs.
+
 ## Supabase Database Schema
 
 The project uses the following tables in Supabase:

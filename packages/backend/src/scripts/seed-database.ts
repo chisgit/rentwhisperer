@@ -29,13 +29,15 @@ async function seedDatabase() {
       .insert({
         name: "Sample Property Management",
         email: "admin@samplepm.com",
-        phone: "+14165551234"
+        phone: "+14165551234",
+        user_id: null // Explicitly set user_id to null
       })
       .select()
       .single();
 
     if (landlordError) {
-      throw new Error(`Error creating landlord: ${landlordError.message}`);
+      console.error("Full landlordError object:", landlordError);
+      throw new Error(`Error creating landlord: ${landlordError.message || 'Unknown error details'}`);
     }
 
     console.log("Landlord created:", landlord);
@@ -67,17 +69,26 @@ async function seedDatabase() {
       {
         unit_number: "101",
         property_id: property.id,
-        lease_start: new Date().toISOString()
+        rent_amount: 1800,
+        rent_due_day: 1,
+        lease_start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString(), // Start of current month
+        lease_end: new Date(new Date().getFullYear() + 1, new Date().getMonth(), 0).toISOString() // End of month, 1 year from now
       },
       {
         unit_number: "102",
         property_id: property.id,
-        lease_start: new Date().toISOString()
+        rent_amount: 1900,
+        rent_due_day: 1,
+        lease_start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString(),
+        lease_end: new Date(new Date().getFullYear() + 1, new Date().getMonth(), 0).toISOString()
       },
       {
         unit_number: "201",
         property_id: property.id,
-        lease_start: new Date().toISOString()
+        rent_amount: 2000,
+        rent_due_day: 1,
+        lease_start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString(),
+        lease_end: new Date(new Date().getFullYear() + 1, new Date().getMonth(), 0).toISOString()
       }
     ];
 
@@ -90,6 +101,13 @@ async function seedDatabase() {
       throw new Error(`Error creating units: ${unitsError.message}`);
     }
 
+    // Ensure units are created before tenants so we can assign unit_id
+    if (unitsError) {
+      throw new Error(`Error creating units: ${(unitsError as any)?.message || 'Unknown error'}`);
+    }
+    if (!units || units.length < 3) {
+      throw new Error('Not enough units created or units array is null/empty.');
+    }
     console.log("Units created:", units);
 
     // Create tenants
@@ -99,25 +117,29 @@ async function seedDatabase() {
         first_name: "John",
         last_name: "Doe",
         email: "john.doe@example.com",
-        phone: "+14165551111"
+        phone: "+14165551111",
+        unit_id: units[0].id // Assign to first unit
       },
       {
         first_name: "Jane",
         last_name: "Smith",
         email: "jane.smith@example.com",
-        phone: "+14165552222"
+        phone: "+14165552222",
+        unit_id: units[1].id // Assign to second unit
       },
       {
         first_name: "Michael",
         last_name: "Brown",
         email: "michael.brown@example.com",
-        phone: "+14165553333"
+        phone: "+14165553333",
+        unit_id: units[2].id // Assign to third unit
       },
       {
         first_name: "Mock",
-        last_name: "Tenant",
+        last_name: "Tenant", // This tenant won't be assigned a unit initially
         email: "mock.tenant@example.com",
-        phone: "+15555555555"
+        phone: "+15555555555",
+        unit_id: null
       }
     ];
 
@@ -130,113 +152,98 @@ async function seedDatabase() {
       throw new Error(`Error creating tenants: ${tenantsError.message}`);
     }
 
+    // Ensure tenants are created before proceeding
+    if (tenantsError) {
+      throw new Error(`Error creating tenants: ${(tenantsError as any)?.message || 'Unknown error'}`);
+    }
+    if (!tenants || tenants.length === 0) {
+      throw new Error('No tenants created or tenants array is null/empty.');
+    }
     console.log("Tenants created:", tenants);
 
-    // Create tenant_units relationships
-    console.log("Creating tenant-unit relationships...");
-    const tenantUnitsData = [
-      {
-        tenant_id: tenants[0].id,
-        unit_id: units[0].id,
-        is_primary: true,
-        lease_start: new Date().toISOString(),
-        rent_amount: 1800,
-        rent_due_day: 1
-      },
-      {
-        tenant_id: tenants[1].id,
-        unit_id: units[1].id,
-        is_primary: true,
-        lease_start: new Date().toISOString(),
-        rent_amount: 1900,
-        rent_due_day: 1
-      },
-      {
-        tenant_id: tenants[2].id,
-        unit_id: units[2].id,
-        is_primary: true,
-        lease_start: new Date().toISOString(),
-        rent_amount: 2000,
-        rent_due_day: 1
-      }
-    ];
-
-    const { data: tenantUnits, error: tenantUnitsError } = await supabase
-      .from("tenant_units")
-      .insert(tenantUnitsData)
-      .select();
-
-    if (tenantUnitsError) {
-      throw new Error(`Error creating tenant-unit relationships: ${tenantUnitsError.message}`);
-    }
-
-    console.log("Tenant-unit relationships created:", tenantUnits);
+    // tenant_units relationships are no longer created as tenants are directly linked to units.
+    // The units table now holds rent_amount and rent_due_day.
 
     // Create rent_payments
     console.log("Creating rent payments...");
 
-    // Fetch tenant_units data to get rent_amount and rent_due_day
-    const { data: tenantUnitsDataForPayments, error: tenantUnitsErrorForPayments } = await supabase
-      .from("tenant_units")
-      .select("tenant_id, unit_id, rent_amount, rent_due_day");
+    // We'll use the rent_amount from the units table, accessed via the tenant's unit_id
+    // This assumes tenants[0], tenants[1], tenants[2] have valid unit_ids from the created units.
 
-    if (tenantUnitsErrorForPayments) {
-      throw new Error(`Error fetching tenant_units data: ${tenantUnitsErrorForPayments.message}`);
-    }
+    const rentPaymentsData = [];
 
-    const rentPaymentsData = [
-      {
+    // Payment for John Doe (tenant 0, unit 0)
+    if (tenants[0]?.unit_id && units.find(u => u.id === tenants[0].unit_id)) {
+      const unitForTenant0 = units.find(u => u.id === tenants[0].unit_id);
+      rentPaymentsData.push({
         tenant_id: tenants[0].id,
-        unit_id: units[0].id,
-        amount: tenantUnitsDataForPayments.find(tu => tu.tenant_id === tenants[0].id && tu.unit_id === units[0].id)?.rent_amount,
-        due_date: new Date(new Date().setDate(15)).toISOString().split('T')[0], // Due on the 15th of this month
-        payment_date: new Date(new Date().setDate(10)).toISOString().split('T')[0], // Paid on the 10th of this month
+        unit_id: tenants[0].unit_id,
+        amount: unitForTenant0.rent_amount,
+        due_date: new Date(new Date().getFullYear(), new Date().getMonth(), unitForTenant0.rent_due_day).toISOString().split('T')[0],
+        payment_date: new Date(new Date().getFullYear(), new Date().getMonth(), unitForTenant0.rent_due_day - 2).toISOString().split('T')[0], // Paid 2 days before due
         is_late: false,
         status: "paid",
         payment_method: "credit_card"
-      },
-      {
+      });
+      // Partial payment example for John Doe
+      rentPaymentsData.push({
+        tenant_id: tenants[0].id,
+        unit_id: tenants[0].unit_id,
+        amount: unitForTenant0.rent_amount / 2, // Partial amount
+        due_date: new Date(new Date().getFullYear(), new Date().getMonth() + 1, unitForTenant0.rent_due_day).toISOString().split('T')[0], // Next month
+        payment_date: null,
+        is_late: false,
+        status: "partial",
+        payment_method: "credit_card"
+      });
+    }
+
+    // Payment for Jane Smith (tenant 1, unit 1)
+    if (tenants[1]?.unit_id && units.find(u => u.id === tenants[1].unit_id)) {
+      const unitForTenant1 = units.find(u => u.id === tenants[1].unit_id);
+      rentPaymentsData.push({
         tenant_id: tenants[1].id,
-        unit_id: units[1].id,
-        amount: tenantUnitsDataForPayments.find(tu => tu.tenant_id === tenants[1].id && tu.unit_id === units[1].id)?.rent_amount,
-        due_date: new Date(new Date().setDate(5)).toISOString().split('T')[0], // Due on the 5th of this month
-        payment_date: new Date(new Date().setDate(10)).toISOString().split('T')[0], // Paid on the 10th of this month (late)
+        unit_id: tenants[1].unit_id,
+        amount: unitForTenant1.rent_amount,
+        due_date: new Date(new Date().getFullYear(), new Date().getMonth(), unitForTenant1.rent_due_day).toISOString().split('T')[0],
+        payment_date: new Date(new Date().getFullYear(), new Date().getMonth(), unitForTenant1.rent_due_day + 5).toISOString().split('T')[0], // Paid 5 days after due (late)
         is_late: true,
         status: "late",
         payment_method: "e_transfer"
-      },
-      {
+      });
+    }
+
+    // Payment for Michael Brown (tenant 2, unit 2)
+    if (tenants[2]?.unit_id && units.find(u => u.id === tenants[2].unit_id)) {
+      const unitForTenant2 = units.find(u => u.id === tenants[2].unit_id);
+      rentPaymentsData.push({
         tenant_id: tenants[2].id,
-        unit_id: units[2].id,
-        amount: tenantUnitsDataForPayments.find(tu => tu.tenant_id === tenants[2].id && tu.unit_id === units[2].id)?.rent_amount,
-        due_date: new Date(new Date().setDate(25)).toISOString().split('T')[0], // Due on the 25th of this month
+        unit_id: tenants[2].unit_id,
+        amount: unitForTenant2.rent_amount,
+        due_date: new Date(new Date().getFullYear(), new Date().getMonth(), unitForTenant2.rent_due_day).toISOString().split('T')[0],
         payment_date: null, // Not paid yet
         is_late: false,
         status: "pending",
         payment_method: null
-      },
-      {
-        tenant_id: tenants[0].id,
-        unit_id: units[0].id,
-        amount: tenantUnitsDataForPayments.find(tu => tu.tenant_id === tenants[0].id && tu.unit_id === units[0].id)?.rent_amount,
-        due_date: new Date(new Date().setDate(15)).toISOString().split('T')[0], // Due on the 15th of this month
-        payment_date: new Date(new Date().setDate(10)).toISOString().split('T')[0], // Paid on the 10th of this month
-        is_late: false,
-        status: "partial",
-        payment_method: "credit_card"
-      }
-    ];
-
-    const { data: rentPayments, error: rentPaymentsError } = await supabase
-      .from("rent_payments")
-      .insert(rentPaymentsData)
-      .select();
-
-    if (rentPaymentsError) {
-      throw new Error(`Error creating rent payments: ${rentPaymentsError.message}`);
+      });
     }
 
-    console.log("Rent payments created:", rentPayments);
+    // Original rentPaymentsData structure for reference has been removed by previous step.
+    // The new rentPaymentsData array is built above.
+
+    if (rentPaymentsData.length > 0) {
+      const { data: rentPayments, error: rentPaymentsError } = await supabase
+        .from("rent_payments")
+        .insert(rentPaymentsData)
+        .select();
+
+      if (rentPaymentsError) {
+        throw new Error(`Error creating rent payments: ${rentPaymentsError.message}`);
+      }
+      console.log("Rent payments created:", rentPayments);
+    } else {
+      console.log("No rent payments to create (possibly no tenants with units).");
+    }
 
     console.log("Database seeding completed successfully!");
   } catch (error) {

@@ -18,12 +18,14 @@ export class RentService {
       console.log(`Error creating rent payment: ${error.message}`);
       throw new Error(`Failed to create rent payment: ${error.message}`);
     }
+
     return data;
   }
 
   /**
    * Get rent payment by ID
-   */  async getRentPaymentById(id: string): Promise<RentPayment | null> {
+   */
+  async getRentPaymentById(id: string): Promise<RentPayment | null> {
     const { data, error } = await supabase
       .from("rent_payments")
       .select("*")
@@ -35,13 +37,13 @@ export class RentService {
       console.log(`Error fetching rent payment ${id}: ${error.message}`);
       throw new Error(`Failed to fetch rent payment: ${error.message}`);
     }
+
     return data;
   }
-
   /**
    * Get all rent payments for a tenant
    */
-  async getRentPaymentsByTenantId(tenantId: string): Promise<RentPayment[]> {
+  async getRentPaymentsByTenantId(tenantId: string): Promise<any[]> {
     const { data, error } = await supabase
       .from("rent_payments")
       .select(`
@@ -57,13 +59,31 @@ export class RentService {
       console.log(`Error fetching rent payments for tenant ${tenantId}: ${error.message}`);
       throw new Error(`Failed to fetch rent payments: ${error.message}`);
     }
-    return data || [];
-  }
 
+    // Format the data for the frontend to include tenant_name and unit_number as direct properties
+    const formattedData = (data || []).map(payment => {
+      // Get tenant name from nested tenant object
+      const tenant_name = payment.tenants ?
+        `${payment.tenants.first_name} ${payment.tenants.last_name}` :
+        'Unknown Tenant';
+
+      // Get unit number from nested unit object
+      const unit_number = payment.units ? payment.units.unit_number : 'Unknown Unit';
+
+      // Return restructured payment with flattened properties
+      return {
+        ...payment,
+        tenant_name,
+        unit_number
+      };
+    });
+
+    return formattedData;
+  }
   /**
    * Get all pending rent payments
    */
-  async getPendingRentPayments(): Promise<RentPayment[]> {
+  async getPendingRentPayments(): Promise<any[]> {
     const { data, error } = await supabase
       .from("rent_payments")
       .select(`
@@ -78,7 +98,30 @@ export class RentService {
       console.log(`Error fetching pending rent payments: ${error.message}`);
       throw new Error(`Failed to fetch pending rent payments: ${error.message}`);
     }
-    return data || [];
+
+    // Format the data for the frontend to include tenant_name and unit_number as direct properties
+    const formattedData = (data || []).map(payment => {
+      // Get tenant name from nested tenant object
+      const tenant_name = payment.tenants ?
+        `${payment.tenants.first_name} ${payment.tenants.last_name}` :
+        'Unknown Tenant';
+
+      // Get unit number from nested unit object
+      const unit_number = payment.units ? payment.units.unit_number : 'Unknown Unit';
+
+      // Add debug logging to see the data structure
+      console.log(`DEBUG: Processing payment ${payment.id} - tenant: ${tenant_name}, unit: ${unit_number}`);
+
+      // Return restructured payment with flattened properties
+      return {
+        ...payment,
+        tenant_name,
+        unit_number
+      };
+    });
+
+    console.log(`DEBUG: Returning ${formattedData.length} formatted pending payments`);
+    return formattedData;
   }
 
   /**
@@ -107,9 +150,9 @@ export class RentService {
       console.log(`Error updating rent payment status ${id}: ${error.message}`);
       throw new Error(`Failed to update rent payment status: ${error.message}`);
     }
+
     return data;
   }
-
   /**
    * Generate rent due for all tenants with rent due today
    */
@@ -265,8 +308,10 @@ export class RentService {
         console.log(`Error updating payment ${payment.id} status: ${error}`);
       }
     }
+
     return updatedPayments;
   }
+
   /**
    * Generate rent due for all tenants regardless of rent due day
    */
@@ -346,95 +391,5 @@ export class RentService {
           .from("rent_payments")
           .select("*")
           .eq("tenant_id", tenant.id)
-          .eq("unit_id", unit.id)
-          .gte("due_date", startOfMonth)
-          .lte("due_date", endOfMonth);
-
-        if (checkError) {
-          logger.error(`Error checking existing payments: ${checkError.message}`);
-          console.log(`Error checking existing payments: ${checkError.message}`);
-          continue;
-        }
-
-        console.log(`DEBUG: Found ${existingPayments?.length || 0} existing payments for this month`);
-
-        // If payment already exists for this month, skip
-        if (existingPayments && existingPayments.length > 0) {
-          console.log(`DEBUG: Payment already exists for tenant ${tenant.id} this month. Skipping.`);
-          continue;
-        }
-
-        // Calculate days past due
-        const daysPastDue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 3600 * 24));
-        console.log(`DEBUG: Days past due: ${daysPastDue}`);
-
-        // Determine status based on days past due
-        const status = daysPastDue > 0 ? "late" : "pending";
-
-        // Define the payment data with the correct type
-        const newPaymentData: {
-          tenant_id: string;
-          unit_id: string;
-          amount: number;
-          due_date: string;
-          payment_date: string | null;
-          status: "pending" | "late";
-          payment_method: string | null;
-          interac_request_link: string | null;
-        } = {
-          tenant_id: tenant.id,
-          unit_id: unit.id,
-          amount: tenantUnit.rent_amount,
-          due_date: dueDateFormatted,
-          payment_date: null,
-          status: status as "pending" | "late",
-          payment_method: null,
-          interac_request_link: null
-        };
-
-        try {
-          // Generate Interac request link
-          const interacRequestLink = await paymentService.generateInteracRequestLink(
-            tenant.email,
-            tenant.first_name,
-            tenantUnit.rent_amount,
-            `Rent payment for unit ${unit.unit_number}`
-          );
-
-          // Set the interac_request_link
-          newPaymentData.interac_request_link = interacRequestLink;
-        } catch (error) {
-          logger.error(`Error generating Interac request link: ${error}`);
-          console.log(`Error generating Interac request link: ${error}`);
-          // Continue without the link
-        }
-
-        const { data: newPayment, error: insertError } = await supabase
-          .from("rent_payments")
-          .insert([newPaymentData])
-          .select()
-          .single();
-
-        if (insertError) {
-          logger.error(`Error creating payment: ${insertError.message}`);
-          console.log(`Error creating payment: ${insertError.message}`);
-          continue;
-        }
-
-        console.log(`Successfully created payment record with ID: ${newPayment.id} and status: ${status}`);
-
-        createdPayments.push(newPayment);
-      } catch (error) {
-        logger.error(`Error processing tenant_unit ${tenantUnit.id}`, error);
-        console.log(`Error processing tenant_unit ${tenantUnit.id}`, error);
-      }
-    }
-
-    return createdPayments;
-  }
-
-  // Removing duplicate generateRentPaymentsForAllTenants method
-}
-
-// Create and export instance for use in other files
-export const rentService = new RentService();
+          .eq("unit_id", tenant.id)
+          .gte("

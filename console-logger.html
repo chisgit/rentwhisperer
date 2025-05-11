@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Console Logger</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background-color: #f5f5f5;
+    }
+
+    h1 {
+      color: #333;
+    }
+
+    #console-output {
+      background-color: #1e1e1e;
+      color: #dcdcdc;
+      padding: 15px;
+      border-radius: 5px;
+      font-family: 'Courier New', monospace;
+      white-space: pre-wrap;
+      height: 400px;
+      overflow-y: auto;
+      margin-bottom: 20px;
+    }
+
+    .log {
+      color: #dcdcdc;
+    }
+
+    .info {
+      color: #6a9eff;
+    }
+
+    .warn {
+      color: #ffcc00;
+    }
+
+    .error {
+      color: #ff6b6b;
+    }
+
+    .debug {
+      color: #6bff6b;
+    }
+
+    button {
+      background-color: #4CAF50;
+      color: white;
+      padding: 10px 15px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 10px;
+    }
+
+    button:hover {
+      background-color: #45a049;
+    }
+
+    #url-input {
+      padding: 10px;
+      width: 300px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+    }
+
+    .controls {
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Console Logger</h1>
+  <div class="controls">
+    <input type="text" id="url-input" value="http://localhost:5173/" placeholder="Enter URL to navigate to">
+    <button id="navigate-btn">Navigate</button>
+    <button id="clear-btn">Clear Console</button>
+  </div>
+  <div id="console-output"></div>
+  <div id="iframe-container">
+    <iframe id="content-frame" style="width: 100%; height: 600px; border: 1px solid #ddd;"></iframe>
+  </div>
+
+  <script>
+    // Get elements
+    const consoleOutput = document.getElementById('console-output');
+    const urlInput = document.getElementById('url-input');
+    const navigateBtn = document.getElementById('navigate-btn');
+    const clearBtn = document.getElementById('clear-btn');
+    const iframe = document.getElementById('content-frame');
+
+    // Store original console methods
+    const originalConsole = {
+      log: console.log,
+      info: console.info,
+      warn: console.warn,
+      error: console.error,
+      debug: console.debug
+    };
+
+    // Function to add message to console output
+    function addToConsole(type, args) {
+      const timestamp = new Date().toLocaleTimeString();
+      const message = Array.from(args).map(arg => {
+        if (typeof arg === 'object') {
+          try {
+            return JSON.stringify(arg, null, 2);
+          } catch (e) {
+            return String(arg);
+          }
+        }
+        return String(arg);
+      }).join(' ');
+
+      const logElement = document.createElement('div');
+      logElement.className = type;
+      logElement.textContent = `[${timestamp}] [${type.toUpperCase()}] ${message}`;
+      consoleOutput.appendChild(logElement);
+      consoleOutput.scrollTop = consoleOutput.scrollHeight;
+
+      // Call original console method
+      originalConsole[type].apply(console, args);
+    }
+
+    // Override console methods
+    console.log = function () { addToConsole('log', arguments); };
+    console.info = function () { addToConsole('info', arguments); };
+    console.warn = function () { addToConsole('warn', arguments); };
+    console.error = function () { addToConsole('error', arguments); };
+    console.debug = function () { addToConsole('debug', arguments); };
+
+    // Navigate to URL
+    navigateBtn.addEventListener('click', () => {
+      const url = urlInput.value.trim();
+      if (url) {
+        console.info(`Navigating to: ${url}`);
+        iframe.src = url;
+      }
+    });
+
+    // Clear console
+    clearBtn.addEventListener('click', () => {
+      consoleOutput.innerHTML = '';
+      console.info('Console cleared');
+    });
+
+    // Handle iframe load event
+    iframe.addEventListener('load', () => {
+      try {
+        console.info(`Loaded: ${iframe.contentWindow.location.href}`);
+
+        // Try to capture console logs from iframe
+        const iframeConsole = iframe.contentWindow.console;
+        iframe.contentWindow.console = {
+          log: function () { addToConsole('log', arguments); iframeConsole.log.apply(iframeConsole, arguments); },
+          info: function () { addToConsole('info', arguments); iframeConsole.info.apply(iframeConsole, arguments); },
+          warn: function () { addToConsole('warn', arguments); iframeConsole.warn.apply(iframeConsole, arguments); },
+          error: function () { addToConsole('error', arguments); iframeConsole.error.apply(iframeConsole, arguments); },
+          debug: function () { addToConsole('debug', arguments); iframeConsole.debug.apply(iframeConsole, arguments); }
+        };
+      } catch (e) {
+        console.error('Could not access iframe content:', e.message);
+      }
+    });
+
+    // Initial navigation
+    window.addEventListener('DOMContentLoaded', () => {
+      console.info('Console Logger initialized');
+      if (urlInput.value) {
+        navigateBtn.click();
+      }
+    });
+
+    // Log errors
+    window.addEventListener('error', (event) => {
+      console.error('Global error:', event.message, 'at', event.filename, ':', event.lineno);
+    });
+  </script>
+</body>
+
+</html>

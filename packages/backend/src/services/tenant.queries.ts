@@ -1,13 +1,12 @@
-import { supabase, Tenant } from "../config/database";
+import { supabase, supabaseAdmin, Tenant } from "../config/database"; // Import supabaseAdmin
 import { logger } from "../utils/logger";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+// import { createClient, SupabaseClient } from "@supabase/supabase-js"; // No longer needed here
 
-// Create a supabase client with the service role key for admin operations
-// This bypasses RLS policies to allow tenant_units modifications
-const adminSupabase: SupabaseClient = createClient(
-  process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
+// Remove local adminSupabase definition, use the one from config/database
+// const adminSupabase: SupabaseClient = createClient(
+//   process.env.SUPABASE_URL || '',
+//   process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+// );
 
 /**
  * Interface for the data structure returned by the Supabase query in getAllTenants and getTenantById.
@@ -22,27 +21,28 @@ interface TenantQueryResult {
   phone: string;
   created_at: string;
   updated_at: string;
-  tenant_units: {
-    unit_id: string;
-    is_primary: boolean;
-    lease_start: string;
+  unit_id: string | null; // Direct foreign key from tenants table
+  units: { // Joined from units table via tenants.unit_id
+    id: string;
+    unit_number: string;
+    property_id: string;
+    rent_amount: number | null;
+    rent_due_day: number | null;
+    lease_start: string | null;
     lease_end: string | null;
-    rent_amount: string;
-    rent_due_day: number;
-    units: {
+    created_at: string;
+    updated_at: string;
+    properties: { // Joined from properties table via units.property_id
       id: string;
-      unit_number: string;
-      property_id: string;
-      properties: {
-        id: string;
-        name: string;
-        address: string;
-        city: string;
-        province: string;
-        postal_code: string;
-      } | null;
+      name: string;
+      address: string;
+      city: string;
+      province: string;
+      postal_code: string;
+      created_at: string;
+      updated_at: string;
     } | null;
-  }[];
+  } | null;
 }
 
 /**
@@ -50,30 +50,37 @@ interface TenantQueryResult {
  * @returns A promise that resolves to an array of TenantQueryResult or an error.
  */
 export async function fetchAllTenantsQuery(): Promise<{ data: TenantQueryResult[] | null; error: any }> {
-  console.log("Executing fetchAllTenantsQuery...");
-  const { data, error } = await supabase
+  console.log("Executing fetchAllTenantsQuery using supabaseAdmin..."); // Log change
+  const { data, error } = await supabaseAdmin // Use supabaseAdmin
     .from("tenants")
     .select(`
-      *,
-      tenant_units!tenant_units_tenant_id_fkey (
-        unit_id,
-        is_primary,
-        lease_start,
-        lease_end,
+      id,
+      first_name,
+      last_name,
+      email,
+      phone,
+      created_at,
+      updated_at,
+      unit_id,
+      units (
+        id,
+        unit_number,
+        property_id,
         rent_amount,
         rent_due_day,
-        units:unit_id (
+        lease_start,
+        lease_end,
+        created_at,
+        updated_at,
+        properties (
           id,
-          unit_number,
-          property_id,
-          properties:property_id (
-            id,
-            name,
-            address,
-            city,
-            province,
-            postal_code
-          )
+          name,
+          address,
+          city,
+          province,
+          postal_code,
+          created_at,
+          updated_at
         )
       )
     `) as { data: TenantQueryResult[] | null; error: any };
@@ -94,30 +101,37 @@ export async function fetchAllTenantsQuery(): Promise<{ data: TenantQueryResult[
  * @returns A promise that resolves to a single TenantQueryResult or null, or an error.
  */
 export async function fetchTenantByIdQuery(id: string): Promise<{ data: TenantQueryResult | null; error: any }> {
-  console.log(`Executing fetchTenantByIdQuery for tenant ID: ${id}`);
-  const { data, error } = await supabase
+  console.log(`Executing fetchTenantByIdQuery for tenant ID: ${id} using supabaseAdmin...`); // Log change
+  const { data, error } = await supabaseAdmin // Use supabaseAdmin
     .from("tenants")
     .select(`
-      *,
-      tenant_units!tenant_units_tenant_id_fkey (
-        unit_id,
-        is_primary,
-        lease_start,
-        lease_end,
+      id,
+      first_name,
+      last_name,
+      email,
+      phone,
+      created_at,
+      updated_at,
+      unit_id,
+      units (
+        id,
+        unit_number,
+        property_id,
         rent_amount,
         rent_due_day,
-        units:unit_id (
+        lease_start,
+        lease_end,
+        created_at,
+        updated_at,
+        properties (
           id,
-          unit_number,
-          property_id,
-          properties:property_id (
-            id,
-            name,
-            address,
-            city,
-            province,
-            postal_code
-          )
+          name,
+          address,
+          city,
+          province,
+          postal_code,
+          created_at,
+          updated_at
         )
       )
     `)
@@ -156,8 +170,8 @@ interface UnitQueryResult {
  * @returns A promise that resolves to an array of units with property data or an error.
  */
 export async function getAllUnitsQuery(): Promise<{ data: UnitQueryResult[] | null; error: any }> {
-  console.log("Executing getAllUnitsQuery...");
-  const { data, error } = await supabase
+  console.log("Executing getAllUnitsQuery using supabaseAdmin..."); // Log change
+  const { data, error } = await supabaseAdmin // Use supabaseAdmin
     .from("units")
     .select(`
       *,
@@ -180,8 +194,8 @@ export async function getAllUnitsQuery(): Promise<{ data: UnitQueryResult[] | nu
  * @returns A promise that resolves to the created tenant data or an error
  */
 export async function createTenantQuery(tenant: Omit<Tenant, 'id'>): Promise<{ data: Tenant | null; error: any }> {
-  console.log("Executing createTenantQuery...");
-  const { data, error } = await supabase
+  console.log("Executing createTenantQuery using supabaseAdmin..."); // Log change
+  const { data, error } = await supabaseAdmin // Use supabaseAdmin
     .from("tenants")
     .insert(tenant)
     .select();
@@ -196,7 +210,7 @@ export async function createTenantQuery(tenant: Omit<Tenant, 'id'>): Promise<{ d
 }
 
 /**
- * Creates or updates a tenant-unit relationship
+ * Creates or updates a tenant-unit relationship (OBSOLETE with new schema - tenant_units table removed)
  * @param tenantId ID of the tenant
  * @param unitId ID of the unit
  * @param isPrimary Whether this is the primary unit for this tenant
@@ -212,69 +226,83 @@ export async function createOrUpdateTenantUnitQuery(
   rentDueDay: number = 1,
   leaseStart?: string
 ): Promise<{ data: any, error: any }> {
-  console.log(`Creating/updating tenant-unit relationship for tenant ${tenantId}, unit ${unitId}`);
+  console.warn("createOrUpdateTenantUnitQuery is called but is based on the old tenant_units schema. This function needs to be updated or removed.");
+  logger.warn("createOrUpdateTenantUnitQuery is called but is based on the old tenant_units schema.");
+  // This function's logic needs to be completely rethought for the new schema.
+  // Assigning a tenant to a unit now means updating tenants.unit_id.
+  // Lease terms (rent_amount, rent_due_day, lease_start, lease_end) are now on the units table.
+  // For now, returning an error or a no-op.
+  return Promise.resolve({ data: null, error: { message: "Function createOrUpdateTenantUnitQuery is obsolete due to schema changes." } });
 
-  // Check if relationship already exists
-  const { data: existing, error: checkError } = await adminSupabase
-    .from('tenant_units')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .eq('unit_id', unitId)
-    .maybeSingle();
+  // console.log(`Creating/updating tenant-unit relationship for tenant ${tenantId}, unit ${unitId}`);
 
-  if (checkError) {
-    logger.error(`Error checking tenant-unit relationship: ${checkError.message}`, checkError);
-    return { data: null, error: checkError };
-  }
+  // // Check if relationship already exists
+  // const { data: existing, error: checkError } = await adminSupabase
+  //   .from('tenant_units') // This table is removed
+  //   .select('*')
+  //   .eq('tenant_id', tenantId)
+  //   .eq('unit_id', unitId)
+  //   .maybeSingle();
 
-  const tenantUnitData = {
-    tenant_id: tenantId,
-    unit_id: unitId,
-    is_primary: isPrimary,
-    lease_start: leaseStart || new Date().toISOString(),
-    rent_amount: rentAmount,
-    rent_due_day: rentDueDay
-  };
+  // if (checkError) {
+  //   logger.error(`Error checking tenant-unit relationship: ${checkError.message}`, checkError);
+  //   return { data: null, error: checkError };
+  // }
 
-  if (existing) {
-    // Update existing relationship
-    console.log(`Updating existing tenant-unit relationship ID: ${existing.id}`);
-    return adminSupabase
-      .from('tenant_units')
-      .update(tenantUnitData)
-      .eq('tenant_id', tenantId)
-      .eq('unit_id', unitId)
-      .select();
-  } else {
-    // Create new relationship
-    console.log(`Creating new tenant-unit relationship`);
-    return adminSupabase
-      .from('tenant_units')
-      .insert([tenantUnitData])
-      .select();
-  }
+  // const tenantUnitData = {
+  //   tenant_id: tenantId,
+  //   unit_id: unitId,
+  //   is_primary: isPrimary,
+  //   lease_start: leaseStart || new Date().toISOString(),
+  //   rent_amount: rentAmount,
+  //   rent_due_day: rentDueDay
+  // };
+
+  // if (existing) {
+  //   // Update existing relationship
+  //   console.log(`Updating existing tenant-unit relationship ID: ${existing.id}`);
+  //   return adminSupabase
+  //     .from('tenant_units') // This table is removed
+  //     .update(tenantUnitData)
+  //     .eq('tenant_id', tenantId)
+  //     .eq('unit_id', unitId)
+  //     .select();
+  // } else {
+  //   // Create new relationship
+  //   console.log(`Creating new tenant-unit relationship`);
+  //   return adminSupabase
+  //     .from('tenant_units') // This table is removed
+  //     .insert([tenantUnitData])
+  //     .select();
+  // }
 }
 
 /**
- * Fetches direct tenant-unit data for a specific tenant
+ * Fetches direct tenant-unit data for a specific tenant (OBSOLETE with new schema - tenant_units table removed)
  * @param tenantId The ID of the tenant
  * @returns A promise that resolves to the tenant-unit data or error
  */
 export async function fetchTenantUnitsByTenantId(
   tenantId: string
 ): Promise<{ data: any, error: any }> {
-  console.log(`Fetching tenant-units for tenant ID: ${tenantId}`);
-  return adminSupabase
-    .from('tenant_units')
-    .select(`
-      *,
-      units:unit_id (
-        *,
-        properties:property_id (*)
-      )
-    `)
-    .eq('tenant_id', tenantId)
-    .order('is_primary', { ascending: false });
+  console.warn("fetchTenantUnitsByTenantId is called but is based on the old tenant_units schema. This function should be removed or updated.");
+  logger.warn("fetchTenantUnitsByTenantId is called but is based on the old tenant_units schema.");
+  // This function is obsolete as tenant_units table is removed.
+  // Tenant's unit information is now fetched directly with the tenant.
+  return Promise.resolve({ data: null, error: { message: "Function fetchTenantUnitsByTenantId is obsolete due to schema changes." } });
+
+  // console.log(`Fetching tenant-units for tenant ID: ${tenantId}`);
+  // return adminSupabase
+  //   .from('tenant_units') // This table is removed
+  //   .select(`
+  //     *,
+  //     units:unit_id (
+  //       *,
+  //       properties:property_id (*)
+  //     )
+  //   `)
+  //   .eq('tenant_id', tenantId)
+  //   .order('is_primary', { ascending: false });
 }
 
 /**
@@ -287,13 +315,13 @@ export async function updateTenantQuery(
   tenantId: string,
   tenantData: Partial<Tenant>
 ): Promise<{ data: any, error: any }> {
-  console.log(`Updating tenant ${tenantId} with data:`, tenantData);
-  return adminSupabase
+  console.log(`Updating tenant ${tenantId} with data using supabaseAdmin:`, tenantData); // Log change
+  return supabaseAdmin // Use supabaseAdmin
     .from('tenants')
     .update(tenantData)
     .eq('id', tenantId)
     .select();
 }
 
-// Removed redundant exports
-export { TenantQueryResult, UnitQueryResult };
+// Export the imported supabaseAdmin, and other types
+export { TenantQueryResult, UnitQueryResult, supabaseAdmin };

@@ -9,10 +9,11 @@ This document maps the entire RentWhisperer system architecture, including modul
 #### Tenants
 - **Purpose**: Stores tenant personal information only
 - **Key Fields**: `id`, `first_name`, `last_name`, `email`, `phone`
-- **Relationships**: 
+- **Relationships**:
   - One-to-many with `tenant_units` (one tenant can have multiple units)
   - One-to-many with `rent_payments` (one tenant can have multiple payments)
   - One-to-many with `notifications` (one tenant can receive multiple notifications)
+- **Info**: Represents a person who rents a unit
 
 #### Units
 - **Purpose**: Stores unit information
@@ -98,12 +99,13 @@ RentPayments─┴─Notifications
 - **Purpose**: Handles rent payment generation and status updates
 - **Key Functions**:
   - `createRentPayment(paymentData)`: Creates a new rent payment record
-  - `getRentPaymentById(id)`: Retrieves a specific rent payment
+  - `getRentPaymentById(id)`: Retrieves a specific rent payment by ID
   - `getRentPaymentsByTenantId(tenantId)`: Retrieves all rent payments for a tenant
   - `getPendingRentPayments()`: Retrieves all pending rent payments
   - `updateRentPaymentStatus(id, status, paymentDate)`: Updates a rent payment status
   - `generateRentDueToday()`: Generates rent due records for tenants with rent due today
   - `updateLateRentPayments()`: Updates status of overdue payments to 'late'
+  - `generateRentPaymentsForAllTenants()`: Generates rent payments for all tenants regardless of rent due day
 - **Dependencies**:
   - Supabase client for database operations
   - Payment Service for generating Interac request links
@@ -111,6 +113,7 @@ RentPayments─┴─Notifications
 - **Called By**:
   - `rent.ts` routes
   - `cron.ts` routes (for generating and updating payments)
+- **Info**: Manages rent payments, including generation, retrieval, and status updates
 
 ### Payment Service (`payment.service.ts`)
 - **Purpose**: Processes payments and generates payment links
@@ -183,6 +186,8 @@ RentPayments─┴─Notifications
 3. System finds all pending payments with due dates before today
 4. Updates their status to 'late'
 5. Notifications are sent to tenants with late payments
+6. If payment is 14+ days late, it may be flagged for N4 form
+7. If payment is 15+ days late, it may be flagged for L1 form
 
 ## Frontend Components
 
@@ -225,14 +230,6 @@ RentPayments─┴─Notifications
 2. API call to update payment status
 3. `rentService.updateRentPaymentStatus()` updates the payment record
 4. Receipt notification may be sent to the tenant
-
-### Late Payment Flow
-1. Cron job triggers `/late-rent` endpoint
-2. `rentService.updateLateRentPayments()` finds overdue payments
-3. Updates their status to 'late'
-4. `sendRentLateNotification()` sends a notification to the tenant
-5. If payment is 14+ days late, it may be flagged for N4 form
-6. If payment is 15+ days late, it may be flagged for L1 form
 
 ## Critical Dependencies and Constraints
 

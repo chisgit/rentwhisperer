@@ -22,22 +22,9 @@ export async function executeRawSql(sql: string): Promise<{ success: boolean; me
       }
     }
 
-    // Attempt 2: Using Supabase SQL interface if available
-    if (typeof supabase.sql === 'function') {
-      try {
-        const { error } = await supabase.sql(sql);
-        if (!error) {
-          return { success: true, message: 'SQL executed successfully via SQL interface' };
-        }
-        logger.warn(`SQL interface execution failed: ${error.message}`);
-      } catch (sqlErr) {
-        logger.warn(`SQL method not available: ${sqlErr}`);
-      }
-    }
-
-    // Attempt 3: Direct REST API call
+    // Attempt 2 (formerly Attempt 3): Direct REST API call
     try {
-      const { SUPABASE_URL, SUPABASE_KEY } = process.env;
+      const { SUPABASE_URL, SUPABASE_KEY } = process.env; // Note: SUPABASE_KEY here is likely the ANON key from .env
 
       if (SUPABASE_URL && SUPABASE_KEY) {
         const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/execute_sql`, {

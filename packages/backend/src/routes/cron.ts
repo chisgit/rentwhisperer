@@ -1,10 +1,9 @@
-import express, { Request, Response } from "express"; // Import Request, Response types
-// Import the service instances
+import express, { Request, Response } from "express";
 import { rentService } from "../services/rent.service";
 import { tenantService } from "../services/tenant.service";
 import { paymentService } from "../services/payment.service";
 import { sendRentDueNotification, sendRentLateNotification } from "../services/notification.service";
-import { supabase, Tenant, Unit, RentPayment, Property } from "../config/database"; // Import types
+import { supabase, Tenant, Unit, RentPayment, Property } from "../config/database";
 import { logger } from "../utils/logger";
 
 const router = express.Router();
@@ -13,7 +12,7 @@ const router = express.Router();
  * Endpoint to generate rent due records and send notifications
  * This would be triggered by a daily cron job
  */
-router.get("/due-rent", async (req: Request, res: Response) => { // Add types
+router.get("/due-rent", async (req: Request, res: Response) => {
   try {
     logger.debug("Processing rent due generation and notifications");
     console.log("Processing rent due generation and notifications");
@@ -23,13 +22,20 @@ router.get("/due-rent", async (req: Request, res: Response) => { // Add types
     logger.info(`Generated ${createdPayments.length} rent payment records.`);
     console.log(`Generated ${createdPayments.length} rent payment records.`);
 
+    // Call the /past-due-day endpoint to ensure all tenants have a payment record for the current month
+    try {
+      await rentService.generateRentDueToday();
+    } catch (error) {
+      logger.error("Error calling /past-due-day endpoint", error);
+      console.log("Error calling /past-due-day endpoint", error);
+    }
+
     const results = [];
 
     // 2. Process each newly created payment for notification
     for (const payment of createdPayments) {
       try {
         // Fetch related data needed for notification
-        // Correctly handle the return type of getTenantById (Tenant | null)
         const tenant = await tenantService.getTenantById(payment.tenant_id);
         if (!tenant) {
           const errorMessage = `Tenant ${payment.tenant_id} not found for payment ${payment.id}`;
@@ -49,7 +55,7 @@ router.get("/due-rent", async (req: Request, res: Response) => { // Add types
           console.log(`Error fetching unit/property for payment ${payment.id}: ${unitError?.message || "Unit/Property not found"}`);
           continue;
         }
-        const property = unit.properties as Property; // Type assertion
+        const property = unit.properties as Property;
 
         // Format address
         const propertyAddress = `${property.address}, ${property.city}, ${property.province} ${property.postal_code}`;
@@ -95,10 +101,10 @@ router.get("/due-rent", async (req: Request, res: Response) => { // Add types
 });
 
 /**
- * Endpoint to update late statuses and send late rent notifications
+t * Endpoint to update late statuses and send late rent notifications
  * This would be triggered by a daily cron job
  */
-router.get("/late-rent", async (req: Request, res: Response) => { // Add types
+router.get("/late-rent", async (req: Request, res: Response) => {
   try {
     logger.debug("Processing late rent status updates and notifications");
     console.log("Processing late rent status updates and notifications");
@@ -202,7 +208,7 @@ router.get("/late-rent", async (req: Request, res: Response) => { // Add types
  * Endpoint to identify tenants eligible for N4 forms (rent 14+ days late)
  * This would be triggered by a daily cron job
  */
-router.get("/form-n4", async (req: Request, res: Response) => { // Add types
+router.get("/form-n4", async (req: Request, res: Response) => {
   try {
     logger.debug("Identifying tenants eligible for N4 form generation");
     console.log("Identifying tenants eligible for N4 form generation");
@@ -271,7 +277,7 @@ router.get("/form-n4", async (req: Request, res: Response) => { // Add types
  * Endpoint to identify tenants eligible for L1 forms (rent 15+ days late)
  * This would be triggered by a daily cron job
  */
-router.get("/form-l1", async (req: Request, res: Response) => { // Add types
+router.get("/form-l1", async (req: Request, res: Response) => {
   try {
     logger.debug("Identifying tenants eligible for L1 form generation");
     console.log("Identifying tenants eligible for L1 form generation");
@@ -346,6 +352,7 @@ router.get("/form-l1", async (req: Request, res: Response) => { // Add types
  */
 router.get("/past-due-day", async (req: Request, res: Response) => {
   try {
+    console.log("DEBUG: /past-due-day endpoint was hit");
     logger.debug("Checking for tenants who need payments created for this month");
     console.log("Checking for tenants who need payments created for this month");
 
@@ -391,7 +398,7 @@ router.get("/past-due-day", async (req: Request, res: Response) => {
     }
 
     if (!allTenantUnits || allTenantUnits.length === 0) {
-      console.log("DEBUG: No tenant_units found in database with joins");
+      console.log(`DEBUG: No tenant_units found in database with joins`);
       return res.json({
         success: true,
         created_payments: 0,
@@ -400,87 +407,49 @@ router.get("/past-due-day", async (req: Request, res: Response) => {
       });
     }
 
-    // Find tenants whose rent due day has passed
-    const tenantUnitsWithDueDayPassed = allTenantUnits.filter(tu => {
-      // Skip entries without tenant or unit info
-      if (!tu.tenants || !tu.units) {
-        console.log(`DEBUG: Skipping tenant_unit ${tu.tenant_id || tu.id || 'unknown'} - missing tenant or unit info`);
-        return false;
-      }
-
-      // Handle null or undefined rent_due_day
-      if (tu.rent_due_day === null || tu.rent_due_day === undefined) {
-        console.log(`DEBUG: Tenant unit ${tu.id} has null/undefined rent_due_day, skipping`);
-        return false;
-      }
-
-      // Convert to number explicitly
-      const dueDayAsNumber = Number(tu.rent_due_day);
-
-      // Check if it's a valid number
-      if (isNaN(dueDayAsNumber)) {
-        console.log(`DEBUG: Tenant unit ${tu.id} has invalid rent_due_day: ${tu.rent_due_day}, skipping`);
-        return false;
-      }
-
-      // Compare with current day
-      const isDueDayPassed = dueDayAsNumber < currentDay;
-      console.log(`DEBUG: Tenant: ${tu.tenants.first_name} ${tu.tenants.last_name}, Current day: ${currentDay}, rent_due_day: ${dueDayAsNumber}, is due day passed: ${isDueDayPassed}`);
-
-      return isDueDayPassed;
-    });
-
-    console.log(`DEBUG: Found ${tenantUnitsWithDueDayPassed.length} tenant_units with rent_due_day < ${currentDay}`);
-
     const results = [];
 
-    // Process each tenant unit with due day passed
-    for (const tenantUnit of tenantUnitsWithDueDayPassed) {
+    // Process each tenant unit
+    for (const tenantUnit of allTenantUnits) {
       try {
         const tenant = tenantUnit.tenants;
         const unit = tenantUnit.units;
 
+        // Skip entries without tenant or unit info
+        if (!tenant || !unit) {
+          console.log(`DEBUG: Skipping tenant_unit ${tenantUnit.tenant_id || tenantUnit.id || 'unknown'} - missing tenant or unit info`);
+          continue;
+        }
+
+        // Handle null or undefined rent_due_day
+        if (tenantUnit.rent_due_day === null || tenantUnit.rent_due_day === undefined) {
+          console.log(`DEBUG: Tenant unit ${tenantUnit.id} has null/undefined rent_due_day, skipping`);
+          continue;
+        }
+
+        // Convert to number explicitly
+        const dueDayAsNumber = Number(tenantUnit.rent_due_day);
+
+        // Check if it's a valid number
+        if (isNaN(dueDayAsNumber)) {
+          console.log(`DEBUG: Tenant unit ${tenantUnit.id} has invalid rent_due_day: ${tenantUnit.rent_due_day}, skipping`);
+          continue;
+        }
+
         console.log(`DEBUG: Processing tenant_unit ID: ${tenantUnit.id}`);
         console.log(`DEBUG: Tenant: ${tenant.first_name} ${tenant.last_name} (ID: ${tenant.id})`);
         console.log(`DEBUG: Unit: ${unit.unit_number} (ID: ${unit.id})`);
+        console.log(`DEBUG: tenantUnit.rent_due_day: ${tenantUnit.rent_due_day}`);
+        console.log(`DEBUG: tenant.id: ${tenant.id}`);
+        console.log(`DEBUG: unit.id: ${unit.id}`);
+        console.log(`DEBUG: tenantUnit.rent_amount: ${tenantUnit.rent_amount}`);
 
         // Calculate the due date for this month
-        const dueDayAsNumber = Number(tenantUnit.rent_due_day);
         const dueDate = new Date(currentYear, currentMonth, dueDayAsNumber);
         const dueDateFormatted = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(dueDayAsNumber).padStart(2, "0")}`;
+        console.log(`DEBUG: dueDateFormatted: ${dueDateFormatted}`);
 
-        // Check if we already have a payment record for this month
-        const startOfMonth = `${currentMonthFormatted}-01`;
-        const endOfMonth = `${currentMonthFormatted}-31`; // Will automatically handle shorter months
-
-        console.log(`DEBUG: Checking for existing payments between ${startOfMonth} and ${endOfMonth}`);
-
-        const { data: existingPayments, error: checkError } = await supabase
-          .from("rent_payments")
-          .select("*")
-          .eq("tenant_id", tenant.id)
-          .eq("unit_id", unit.id)
-          .gte("due_date", startOfMonth)
-          .lte("due_date", endOfMonth);
-
-        if (checkError) {
-          logger.error(`Error checking existing payments: ${checkError.message}`);
-          console.log(`Error checking existing payments: ${checkError.message}`);
-          continue;
-        }
-
-        console.log(`DEBUG: Found ${existingPayments?.length || 0} existing payments for this month`);
-
-        // If payment already exists for this month, skip
-        if (existingPayments && existingPayments.length > 0) {
-          console.log(`DEBUG: Payment already exists for tenant ${tenant.id} this month. Skipping.`);
-          continue;
-        }
-
-        // Create a new payment record
-        console.log(`Creating new payment record for tenant ${tenant.first_name} ${tenant.last_name}`);
-
-        // Calculate days past due
+        // Determine status based on days past due
         const daysPastDue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 3600 * 24));
         console.log(`DEBUG: Days past due: ${daysPastDue}`);
 
@@ -507,6 +476,8 @@ router.get("/past-due-day", async (req: Request, res: Response) => {
           payment_method: null,
           interac_request_link: null
         };
+
+        console.log(`DEBUG: newPaymentData: ${JSON.stringify(newPaymentData)}`);
 
         try {
           // Generate Interac request link

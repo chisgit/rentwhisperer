@@ -1,4 +1,5 @@
-import { Tenant, TenantQueryResult } from "./tenant.queries"; // Assuming TenantQueryResult is exported from queries
+import { TenantQueryResult } from "./tenant.queries";
+import { Tenant } from "../config/database"; // Corrected path
 import { logger } from "../utils/logger";
 
 // Add functions for data transformation and validation here
@@ -7,9 +8,9 @@ import { logger } from "../utils/logger";
  * Transforms raw Supabase tenant query result into the desired Tenant format.
  */
 export function transformTenantQueryResult(tenant: TenantQueryResult): Tenant {
-  // Find primary unit relationship (if any)
-  const primaryRelationship = tenant.tenant_units?.find((tu) => tu.is_primary) || tenant.tenant_units?.[0];
-  const primaryUnit = primaryRelationship?.units;
+  // The 'units' field in TenantQueryResult is the directly joined unit object
+  // (or null if tenant.unit_id is null or no matching unit found)
+  const primaryUnit = tenant.units; // This is the joined unit based on tenants.unit_id
   const properties = primaryUnit?.properties;
 
   // Explicitly map to Tenant type, converting nulls to undefined for optional fields
@@ -21,15 +22,16 @@ export function transformTenantQueryResult(tenant: TenantQueryResult): Tenant {
     phone: tenant.phone,
     created_at: tenant.created_at,
     updated_at: tenant.updated_at,
-    unit_id: primaryUnit?.id ?? undefined,
+    unit_id: primaryUnit?.id ?? undefined, // tenant.unit_id is the FK, primaryUnit.id is the joined unit's ID
     unit_number: primaryUnit?.unit_number ?? undefined,
     property_name: properties?.name ?? undefined,
     property_address: properties?.address ?? undefined,
     property_city: properties?.city ?? undefined,
     property_province: properties?.province ?? undefined,
     property_postal_code: properties?.postal_code ?? undefined,
-    rent_amount: primaryRelationship?.rent_amount ? parseFloat(primaryRelationship.rent_amount) : undefined,
-    rent_due_day: primaryRelationship?.rent_due_day ?? undefined,
+    // Rent amount and due day now come directly from the 'units' table in the current schema
+    rent_amount: primaryUnit?.rent_amount !== null && primaryUnit?.rent_amount !== undefined ? Number(primaryUnit.rent_amount) : undefined,
+    rent_due_day: primaryUnit?.rent_due_day ?? undefined,
   };
 }
 
