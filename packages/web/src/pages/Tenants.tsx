@@ -12,13 +12,12 @@ const Tenants = () => {
   const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
-  const [apiLoading, setApiLoading] = useState<boolean>(false);
-
-  // Fetch tenants from the backend API
+  const [apiLoading, setApiLoading] = useState<boolean>(false);  // Fetch tenants from the backend API
   const fetchTenants = async () => {
     setLoading(true);
     try {
-      // Add type assertion to ensure API response matches our Tenant interface
+      console.log("[Tenants] Fetching fresh tenant data from server...");
+      // The API service adds its own cache-busting parameter
       const data = await tenantsApi.getAll() as Tenant[];
       // Explicitly convert rent_amount and rent_due_day to numbers
       const transformedData = data.map(tenant => ({
@@ -50,37 +49,65 @@ const Tenants = () => {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setSelectedTenant(null);
-  };
-  // Save tenant (create or update)
+  };  // Save tenant (create or update)
   const handleSaveTenant = async (formData: Tenant) => {
     setApiLoading(true);
     try {
       if (formData.id) {
-        console.log("Updating tenant with data:", formData);
+        console.log("[Tenants] Updating tenant with ID:", formData.id);
+        console.log("[Tenants] Update payload:", JSON.stringify(formData, null, 2));
+
+        // Ensure rent fields are properly formatted
+        const validatedFormData = {
+          ...formData,
+          rent_amount: formData.rent_amount !== undefined ? Number(formData.rent_amount) : undefined,
+          rent_due_day: formData.rent_due_day !== undefined ? Number(formData.rent_due_day) : undefined,
+          unit_id: formData.unit_id || null // Ensure null if empty string
+        };
+
         // Update existing tenant
-        const updatedTenant = await tenantsApi.update(formData.id.toString(), formData) as Tenant;
-
-        // Update the tenant in the local state
-        setTenants(prevTenants =>
-          prevTenants.map(tenant =>
-            tenant.id === formData.id ? updatedTenant : tenant
-          )
-        );
-
-        console.log("Tenant updated successfully:", updatedTenant);
+        const updatedTenant = await tenantsApi.update(formData.id.toString(), validatedFormData) as Tenant;
+        console.log("[Tenants] Tenant updated successfully:", updatedTenant);
       } else {
-        console.log("Creating tenant with data:", formData);
+        console.log("[Tenants] Creating tenant with data:", JSON.stringify(formData, null, 2));
+
+        // Ensure rent fields are properly formatted
+        const validatedFormData = {
+          ...formData,
+          rent_amount: formData.rent_amount !== undefined ? Number(formData.rent_amount) : undefined,
+          rent_due_day: formData.rent_due_day !== undefined ? Number(formData.rent_due_day) : undefined,
+          unit_id: formData.unit_id || null // Ensure null if empty string
+        };
+
         // Create new tenant
-        const newTenant = await tenantsApi.create(formData) as Tenant;
+        const newTenant = await tenantsApi.create(validatedFormData) as Tenant;
+        console.log("[Tenants] Tenant created successfully:", newTenant);
+      }      // Always refetch data from the server after any tenant operation
+      console.log("[Tenants] Refreshing tenant data from server...");
 
-        // Add the new tenant to the local state
-        setTenants(prevTenants => [...prevTenants, newTenant]);
+      // Use a sequence of refresh attempts to ensure we get the updated data
+      const performRefresh = async (attempt = 1) => {
+        try {
+          console.log(`[Tenants] Executing data refresh attempt ${attempt}...`);
+          await fetchTenants();
+          console.log(`[Tenants] Data refresh attempt ${attempt} completed`);
 
-        console.log("Tenant created successfully:", newTenant);
-      }
+          // Close the modal only after the data refresh succeeds
+          handleCloseModal();
+        } catch (refreshErr) {
+          console.error(`[Tenants] Error during data refresh attempt ${attempt}:`, refreshErr);
+          if (attempt < 3) {
+            // Try again after a delay
+            console.log(`[Tenants] Will retry refresh in ${attempt * 1000}ms...`);
+            setTimeout(() => performRefresh(attempt + 1), attempt * 1000);
+          } else {
+            handleCloseModal(); // Close modal even if refresh fails after all attempts
+          }
+        }
+      };
 
-      // Close the modal after successful save
-      handleCloseModal();
+      // First attempt after a delay
+      setTimeout(() => performRefresh(), 1500);
     } catch (err: any) {
       console.error("Error saving tenant:", err);
       setError(err.message || "Failed to save tenant. Please try again.");
@@ -106,9 +133,9 @@ const Tenants = () => {
   }
 
   return (
-    <div className="tenants-page">
-      <header className="page-header">
-        <h1>Tenants</h1>
+    <div className="tenants-page">      <header className="page-header">
+      <h1>Tenants</h1>
+      <div className="button-group">
         <Button
           onClick={() => {
             setSelectedTenant(null); // Clear any selected tenant
@@ -117,7 +144,17 @@ const Tenants = () => {
         >
           Add Tenant
         </Button>
-      </header>
+        <Button
+          onClick={async () => {
+            console.log("[Tenants] Manual refresh requested");
+            await fetchTenants();
+            console.log("[Tenants] Manual refresh completed");
+          }}
+        >
+          Refresh Data
+        </Button>
+      </div>
+    </header>
 
       <div className="tenants-container">
         <div className="table-container">

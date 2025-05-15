@@ -9,8 +9,8 @@ interface Tenant {
   unit_number?: string;
   property_name?: string;
   // Rent info comes from tenant_units table
-  rent_amount?: number;
-  rent_due_day?: number;
+  rent_amount?: number | null;
+  rent_due_day?: number | null;
   created_at?: string;
   updated_at?: string;
 }

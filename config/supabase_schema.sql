@@ -2,17 +2,18 @@
 -- Updated to match the provided schema diagram (direct tenant-to-unit relationship)
 
 -- DATA ARCHITECTURE OVERVIEW (Updated):
--- 1. tenants table: Stores tenant personal information and a direct link to their unit (unit_id)
--- 2. units table: Stores unit information including rent_amount, rent_due_day, lease_start, lease_end
--- 3. properties table: Stores property information
--- 4. rent_payments table: Stores payment records, linked to tenants and units.
--- 5. All property information should be derived through relationships.
+-- 1. tenants table: Stores tenant personal information.
+-- 2. units table: Stores general unit information.
+-- 3. tenant_units table: Junction table linking tenants to units, storing lease-specific details like rent_amount, rent_due_day, lease_start, lease_end.
+-- 4. properties table: Stores property information.
+-- 5. rent_payments table: Stores payment records, linked to tenants and units (via tenant_units or directly if appropriate).
+-- 6. All property information should be derived through relationships.
 
 -- Enable UUID extension
 create extension if not exists "uuid-ossp";
 
 -- Enable Row Level Security
-alter table if exists auth.users enable row level security;
+-- alter table if exists auth.users enable row level security; -- This can be problematic, Supabase manages RLS for auth.users
 
 -- Create landlords table first (no dependencies)
 create table if not exists public.landlords (
@@ -39,37 +40,47 @@ create table if not exists public.properties (
 );
 
 -- Create units table (depends on properties)
--- Includes rent_amount, rent_due_day, lease_start, lease_end as per the provided schema diagram
+-- rent_amount, rent_due_day, lease_start, lease_end are moved to tenant_units
 create table if not exists public.units (
   id uuid default uuid_generate_v4() primary key,
   unit_number text not null,
   property_id uuid not null,
-  rent_amount numeric, -- As per image
-  rent_due_day integer, -- As per image
-  lease_start timestamp with time zone, -- As per image
-  lease_end timestamp with time zone, -- As per image
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null
 );
 
--- Create tenants table (depends on units)
--- Includes a direct unit_id foreign key
+-- Create tenants table
+-- unit_id is removed, relationship managed by tenant_units
 create table if not exists public.tenants (
   id uuid default uuid_generate_v4() primary key,
   first_name text not null,
   last_name text not null,
   email text,
   phone text not null,
-  unit_id uuid, -- Foreign key to units table
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null
+);
+
+-- Create tenant_units junction table (links tenants to units and stores lease details)
+create table if not exists public.tenant_units (
+  id uuid default uuid_generate_v4() primary key,
+  tenant_id uuid not null,
+  unit_id uuid not null,
+  rent_amount numeric not null,
+  rent_due_day integer not null check (rent_due_day >= 1 and rent_due_day <= 31),
+  lease_start_date date,
+  lease_end_date date,
+  created_at timestamp with time zone default now() not null,
+  updated_at timestamp with time zone default now() not null,
+  constraint uq_tenant_unit unique (tenant_id, unit_id) -- A tenant can only be assigned to a specific unit once
 );
 
 -- Create rent_payments table
 create table if not exists public.rent_payments (
   id uuid default uuid_generate_v4() primary key,
   tenant_id uuid not null,
-  unit_id uuid not null, -- Kept as per image, might be redundant if tenant is tied to one unit
+  unit_id uuid not null, -- Retained for direct reference, but could also link via tenant_units_id
+  tenant_unit_id uuid, -- Optional: Foreign key to tenant_units for more precise linking
   amount numeric not null,
   due_date date not null,
   payment_date date,
@@ -157,44 +168,46 @@ BEGIN
 END;
 $$;
 
--- Ensure unit_id column exists in tenants table before adding foreign key
+-- Foreign keys for tenant_units
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM   information_schema.columns
-    WHERE  table_schema = 'public'
-    AND    table_name = 'tenants'
-    AND    column_name = 'unit_id'
-  ) THEN
-    RAISE NOTICE 'Column unit_id does not exist in public.tenants. Adding it.';
-    ALTER TABLE public.tenants ADD COLUMN unit_id uuid;
-    RAISE NOTICE 'Column unit_id added to public.tenants.';
-  ELSE
-    RAISE NOTICE 'Column unit_id already exists in public.tenants. Skipping add column.';
-  END IF;
-END;
-$$;
-
--- Tenants to Units (New direct relationship)
-DO $$
-BEGIN
-  RAISE NOTICE 'Attempting to add constraint tenants_unit_id_fkey if it does not exist.';
+  RAISE NOTICE 'Attempting to add constraint tenant_units_tenant_id_fkey if it does not exist.';
   IF NOT EXISTS (
     SELECT 1
     FROM   pg_constraint
-    WHERE  conname = 'tenants_unit_id_fkey'
-    AND    conrelid = 'public.tenants'::regclass
+    WHERE  conname = 'tenant_units_tenant_id_fkey'
+    AND    conrelid = 'public.tenant_units'::regclass
   ) THEN
-    ALTER TABLE public.tenants
-      ADD CONSTRAINT tenants_unit_id_fkey
+    ALTER TABLE public.tenant_units
+      ADD CONSTRAINT tenant_units_tenant_id_fkey
+      FOREIGN KEY (tenant_id)
+      REFERENCES public.tenants(id);
+    RAISE NOTICE 'Constraint tenant_units_tenant_id_fkey added.';
+  ELSE
+    RAISE NOTICE 'Constraint tenant_units_tenant_id_fkey already exists. Skipping.';
+  END IF;
+  RAISE NOTICE 'Finished processing constraint tenant_units_tenant_id_fkey.';
+END;
+$$;
+
+DO $$
+BEGIN
+  RAISE NOTICE 'Attempting to add constraint tenant_units_unit_id_fkey if it does not exist.';
+  IF NOT EXISTS (
+    SELECT 1
+    FROM   pg_constraint
+    WHERE  conname = 'tenant_units_unit_id_fkey'
+    AND    conrelid = 'public.tenant_units'::regclass
+  ) THEN
+    ALTER TABLE public.tenant_units
+      ADD CONSTRAINT tenant_units_unit_id_fkey
       FOREIGN KEY (unit_id)
       REFERENCES public.units(id);
-    RAISE NOTICE 'Constraint tenants_unit_id_fkey added.';
+    RAISE NOTICE 'Constraint tenant_units_unit_id_fkey added.';
   ELSE
-    RAISE NOTICE 'Constraint tenants_unit_id_fkey already exists. Skipping.';
+    RAISE NOTICE 'Constraint tenant_units_unit_id_fkey already exists. Skipping.';
   END IF;
-  RAISE NOTICE 'Finished processing constraint tenants_unit_id_fkey.';
+  RAISE NOTICE 'Finished processing constraint tenant_units_unit_id_fkey.';
 END;
 $$;
 
@@ -241,9 +254,64 @@ BEGIN
 END;
 $$;
 
+-- Optional: Add foreign key from rent_payments to tenant_units
+DO $$
+BEGIN
+  RAISE NOTICE 'Attempting to add constraint rent_payments_tenant_unit_id_fkey if it does not exist.';
+  -- Ensure referencing column exists
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'rent_payments' AND column_name = 'tenant_unit_id'
+  ) THEN
+    RAISE NOTICE 'Column tenant_unit_id does not exist in public.rent_payments. Skipping FK constraint.';
+    RETURN;
+  END IF;
+
+  -- Ensure referenced table and column exist
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'tenant_units'
+  ) THEN
+    RAISE NOTICE 'Table public.tenant_units does not exist. Skipping FK constraint.';
+    RETURN;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tenant_units' AND column_name = 'id'
+  ) THEN
+    RAISE NOTICE 'Column id does not exist in public.tenant_units. Skipping FK constraint.';
+    RETURN;
+  END IF;
+
+  -- Add constraint if it doesn't exist
+  IF NOT EXISTS (
+    SELECT 1
+    FROM   pg_constraint
+    WHERE  conname = 'rent_payments_tenant_unit_id_fkey'
+    AND    conrelid = 'public.rent_payments'::regclass
+  ) THEN
+    ALTER TABLE public.rent_payments
+      ADD CONSTRAINT rent_payments_tenant_unit_id_fkey
+      FOREIGN KEY (tenant_unit_id)
+      REFERENCES public.tenant_units(id)
+      ON DELETE SET NULL; -- Or ON DELETE CASCADE
+    RAISE NOTICE 'Constraint rent_payments_tenant_unit_id_fkey added.';
+  ELSE
+    RAISE NOTICE 'Constraint rent_payments_tenant_unit_id_fkey already exists. Skipping.';
+  END IF;
+  RAISE NOTICE 'Finished processing constraint rent_payments_tenant_unit_id_fkey.';
+END;
+$$;
+
+-- Grant all privileges to the service role (early for index/trigger creation)
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO service_role;
+GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO service_role;
+
 -- Create functions for automatic updated_at timestamp
 create or replace function public.update_updated_at_column()
-returns trigger as $$
+returns trigger as
+$$
 begin
   new.updated_at = now();
   return new;
@@ -252,46 +320,36 @@ $$ language plpgsql;
 
 -- Function to directly update tenant fields when normal updates aren't working
 CREATE OR REPLACE FUNCTION update_tenant_direct(tenant_id UUID, update_fields TEXT)
-RETURNS TABLE(success BOOLEAN, message TEXT, query_executed TEXT) AS $$
+RETURNS TABLE(success BOOLEAN, message TEXT, query_executed TEXT) AS
+$$
 DECLARE
-  query TEXT;
-  rows_affected INTEGER;
+  update_query TEXT;
 BEGIN
-  -- Verify the tenant exists first
-  IF NOT EXISTS (SELECT 1 FROM public.tenants WHERE id = tenant_id) THEN
-    RETURN QUERY SELECT FALSE, 'Tenant not found with ID: ' || tenant_id::TEXT, '';
-    RETURN;
-  END IF;
-
-  -- Construct and execute dynamic SQL update
-  query := 'UPDATE public.tenants SET ' || update_fields || ', updated_at = NOW() WHERE id = ''' || tenant_id || '''';
+  -- Construct the dynamic update query
+  update_query := 'UPDATE public.tenants SET ' || update_fields || ' WHERE id = ''' || tenant_id || '''';
 
   -- Log the query for debugging
-  RAISE NOTICE 'Executing query: %', query;
+  RAISE NOTICE 'Executing update_tenant_direct query: %', update_query;
 
-  -- Execute the query
-  EXECUTE query;
+  -- Execute the dynamic update query
+  EXECUTE update_query;
 
-  -- Check if update was successful
-  GET DIAGNOSTICS rows_affected = ROW_COUNT;
-
-  -- Return true if at least one row was updated
-  IF rows_affected > 0 THEN
-    RETURN QUERY SELECT TRUE, 'Successfully updated ' || rows_affected || ' row(s)', query;
+  -- Check if any rows were affected
+  IF FOUND THEN
+    RETURN QUERY SELECT TRUE, 'Tenant updated successfully', update_query;
   ELSE
-    RETURN QUERY SELECT FALSE, 'Update executed but no rows affected', query;
+    RETURN QUERY SELECT FALSE, 'Tenant with ID ' || tenant_id || ' not found', update_query;
   END IF;
-
-  RETURN;
 EXCEPTION WHEN OTHERS THEN
-  RETURN QUERY SELECT FALSE, 'Update failed: ' || SQLERRM, query;
+  RETURN QUERY SELECT FALSE, 'Error updating tenant: ' || SQLERRM, update_query;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql;
 
 -- Function to directly execute SQL statements
 -- IMPORTANT: This is a security risk if exposed publicly, use only in secured environments
 CREATE OR REPLACE FUNCTION execute_sql(sql TEXT)
-RETURNS BOOLEAN AS $$
+RETURNS BOOLEAN AS
+$$
 BEGIN
   -- Log the query for debugging
   RAISE NOTICE 'Executing SQL: %', sql;
@@ -305,7 +363,7 @@ EXCEPTION WHEN OTHERS THEN
   RAISE NOTICE 'SQL execution failed: %', SQLERRM;
   RETURN FALSE;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql;
 
 -- Create triggers for updating updated_at
 DO $$
@@ -407,11 +465,12 @@ END;
 $$;
 
 -- Create indexes for performance
--- Removed indexes for tenant_units
 create index if not exists units_property_id_idx on public.units(property_id);
-create index if not exists tenants_unit_id_idx on public.tenants(unit_id); -- New index
+create index if not exists tenant_units_tenant_id_idx on public.tenant_units(tenant_id);
+create index if not exists tenant_units_unit_id_idx on public.tenant_units(unit_id);
 create index if not exists rent_payments_tenant_id_idx on public.rent_payments(tenant_id);
 create index if not exists rent_payments_unit_id_idx on public.rent_payments(unit_id);
+create index if not exists rent_payments_tenant_unit_id_idx on public.rent_payments(tenant_unit_id); -- Index for new FK
 create index if not exists rent_payments_due_date_idx on public.rent_payments(due_date);
 create index if not exists rent_payments_status_idx on public.rent_payments(status);
 create index if not exists notifications_tenant_id_idx on public.notifications(tenant_id);
@@ -670,12 +729,58 @@ COMMENT ON FUNCTION update_tenant_direct(UUID, TEXT) IS 'Directly updates tenant
 GRANT EXECUTE ON FUNCTION execute_sql(TEXT) TO service_role;
 COMMENT ON FUNCTION execute_sql(TEXT) IS 'Executes raw SQL. WARNING: Only use in secured environments.';
 
--- Removed the DO block that dropped columns from units, as these columns are now part of the units table definition.
-
--- Grant all privileges to the service role
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO service_role;
-
 -- Grant SELECT access to the anon role for all tables in the public schema
 -- This is necessary for the frontend to be able to read data via the API
 GRANT USAGE ON SCHEMA public TO anon;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
+
+-- Note: GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO service_role; was moved earlier
+
+-- RLS for tenant_units
+DO $$
+BEGIN
+  alter table public.tenant_units enable row level security;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'tenant_units'
+    AND policyname = 'Enable read access for all users'
+  ) THEN
+    create policy "Enable read access for all users" on public.tenant_units for select using (true);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'tenant_units'
+    AND policyname = 'Enable insert for authenticated users'
+  ) THEN
+    create policy "Enable insert for authenticated users" on public.tenant_units for insert with check (auth.role() = 'authenticated');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE tablename = 'tenant_units'
+    AND policyname = 'Enable update for authenticated users'
+  ) THEN
+    create policy "Enable update for authenticated users" on public.tenant_units for update using (auth.role() = 'authenticated');
+  END IF;
+END;
+$$;
+
+-- Trigger for tenant_units updated_at
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgname = 'update_tenant_units_updated_at'
+  ) THEN
+    create trigger update_tenant_units_updated_at
+      before update on public.tenant_units
+      for each row execute function public.update_updated_at_column();
+  END IF;
+END;
+$$;

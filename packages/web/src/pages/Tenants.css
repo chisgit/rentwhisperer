@@ -14,6 +14,11 @@
   margin: 0;
 }
 
+.button-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .tenants-container {
   background-color: white;
   border-radius: 8px;

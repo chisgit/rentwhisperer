@@ -77,17 +77,47 @@ export interface Tenant {
 
 // Tenant API functions
 export const tenantsApi = {
-  getAll: () => fetchApi<Tenant[]>("/tenants"),
-  getById: (id: string) => fetchApi<Tenant>(`/tenants/${id}`),
-  create: (data: Tenant) => fetchApi<Tenant>("/tenants", {
-    method: "POST",
-    body: JSON.stringify(data)
-  }), update: (id: string, data: Tenant) => {
+  getAll: () => {
+    // Add a cache-busting query parameter
+    const timestamp = new Date().getTime();
+    return fetchApi<Tenant[]>(`/tenants?_t=${timestamp}`);
+  },
+  getById: (id: string) => {
+    // Add a cache-busting query parameter
+    const timestamp = new Date().getTime();
+    return fetchApi<Tenant>(`/tenants/${id}?_t=${timestamp}`);
+  },
+  create: (data: Tenant) => {
+    // Ensure numeric fields are proper numbers before sending to the API
+    const normalizedData = {
+      ...data,
+      rent_amount: data.rent_amount !== undefined ? Number(data.rent_amount) : null,
+      rent_due_day: data.rent_due_day !== undefined ? Number(data.rent_due_day) : null
+    };
+
+    console.log(`API Request to create tenant:`, normalizedData);
+
+    return fetchApi<Tenant>("/tenants", {
+      method: "POST",
+      body: JSON.stringify(normalizedData)
+    });
+  },
+  update: (id: string, data: Tenant) => {
     console.log(`API Request to update tenant ${id}:`, data);
-    console.log(`API Request raw JSON:`, JSON.stringify(data));
+
+    // Ensure numeric fields are proper numbers before sending to the API
+    const normalizedData = {
+      ...data,
+      rent_amount: data.rent_amount !== undefined ? Number(data.rent_amount) : null,
+      rent_due_day: data.rent_due_day !== undefined ? Number(data.rent_due_day) : null
+    };
+
+    console.log(`API Request normalized data:`, normalizedData);
+    console.log(`API Request raw JSON:`, JSON.stringify(normalizedData));
+
     return fetchApi<Tenant>(`/tenants/${id}`, {
       method: "PATCH",
-      body: JSON.stringify(data)
+      body: JSON.stringify(normalizedData)
     });
   },
   getAllUnits: () => fetchApi<any[]>("/tenants/units") // Add method to get all units

@@ -71,21 +71,9 @@ export interface Tenant {
   property_province?: string; // Derived from units->properties relationship
   property_postal_code?: string; // Derived from units->properties relationship
   unit_number?: string; // Derived from units relationship
-  rent_amount?: number; // Derived from tenant_units relationship
-  rent_due_day?: number; // Derived from tenant_units relationship
+  rent_amount?: number | null; // Derived from tenant_units relationship
+  rent_due_day?: number | null; // Derived from tenant_units relationship
   tenant_units?: TenantUnit[]; // Related tenant-unit relationships
-}
-
-export interface TenantUnit {
-  tenant_id: string; // UUID in the database
-  unit_id: string; // UUID in the database
-  is_primary: boolean;
-  rent_amount: number; // Added field for per-tenant rent amount
-  rent_due_day: number; // Added field for per-tenant rent due day
-  lease_start: string;
-  lease_end: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface TenantUnit {

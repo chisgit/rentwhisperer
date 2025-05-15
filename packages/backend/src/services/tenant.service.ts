@@ -30,43 +30,41 @@ function validateBasicTenantFields(tenantFields: Partial<Pick<Tenant, "first_nam
 /**
  * Validates rent amount and due day values
  */
-function validateRentDetails(rentAmount: any, rentDueDay: any, isRequired: boolean = false): { validatedRentAmount: number | undefined, validatedRentDueDay: number | undefined } {
-  let validatedRentAmount = rentAmount;
-  let validatedRentDueDay = rentDueDay;
+function validateRentDetails(rentAmount: any, rentDueDay: any, isRequired: boolean = false): { validatedRentAmount: number | null | undefined, validatedRentDueDay: number | null | undefined } {
+  let validatedRentAmount = normalizeRentAmount(rentAmount);
+  let validatedRentDueDay = normalizeRentDueDay(rentDueDay);
 
   if (isRequired) {
-    if (validatedRentAmount === undefined || validatedRentAmount === null || (typeof validatedRentAmount === 'number' && isNaN(validatedRentAmount))) {
+    if (validatedRentAmount === null || validatedRentAmount === undefined) {
       throw new Error("Rent amount is required");
     }
 
-    if (validatedRentDueDay === undefined || validatedRentDueDay === null || (typeof validatedRentDueDay === 'number' && isNaN(validatedRentDueDay))) {
+    if (validatedRentDueDay === null || validatedRentDueDay === undefined) {
       throw new Error("Rent due day is required");
     }
   } else {
-    // Handle default values for non-required fields
-    if (validatedRentAmount === undefined || validatedRentAmount === null ||
-      (typeof validatedRentAmount === 'number' && isNaN(validatedRentAmount))) {
-      validatedRentAmount = 0;
-      console.log(`Using default rent_amount: 0`);
+    // If not required, null is acceptable. Only default if undefined.
+    if (validatedRentAmount === undefined) {
+      validatedRentAmount = 0; // Default to 0 if truly undefined, not if explicitly null
+      console.log(`Using default rent_amount: 0 because it was undefined`);
     }
 
-    if (validatedRentDueDay === undefined || validatedRentDueDay === null ||
-      (typeof validatedRentDueDay === 'number' && isNaN(validatedRentDueDay))) {
-      validatedRentDueDay = 1;
-      console.log(`Using default rent_due_day: 1`);
+    if (validatedRentDueDay === undefined) {
+      validatedRentDueDay = 1; // Default to 1 if truly undefined, not if explicitly null
+      console.log(`Using default rent_due_day: 1 because it was undefined`);
     }
   }
 
-  // Validate rent amount if defined
-  if (validatedRentAmount !== undefined) {
-    if (typeof validatedRentAmount === 'number' && validatedRentAmount < 0) {
+  // Validate rent amount if not null or undefined
+  if (validatedRentAmount !== null && validatedRentAmount !== undefined) {
+    if (validatedRentAmount < 0) {
       throw new Error("Rent amount cannot be negative");
     }
   }
 
-  // Validate rent due day if defined
-  if (validatedRentDueDay !== undefined) {
-    if (typeof validatedRentDueDay === 'number' && (validatedRentDueDay < 1 || validatedRentDueDay > 31)) {
+  // Validate rent due day if not null or undefined
+  if (validatedRentDueDay !== null && validatedRentDueDay !== undefined) {
+    if (validatedRentDueDay < 1 || validatedRentDueDay > 31) {
       throw new Error("Rent due day must be between 1 and 31");
     }
   }
@@ -75,31 +73,38 @@ function validateRentDetails(rentAmount: any, rentDueDay: any, isRequired: boole
 }
 
 /**
- * Normalizes rent amount to a number
+ * Normalizes rent amount to a number or null
  */
-function normalizeRentAmount(rentAmount: any): number {
-  if (typeof rentAmount === 'number') {
-    return rentAmount;
-  } else if (typeof rentAmount === 'string') {
-    return parseFloat(rentAmount) || 0;
+function normalizeRentAmount(rentAmount: any): number | null {
+  if (rentAmount === null || rentAmount === undefined) return null;
+  if (typeof rentAmount === 'number') return isNaN(rentAmount) ? null : rentAmount;
+  if (typeof rentAmount === 'string') {
+    if (rentAmount.trim() === "") return null; // Empty string means NULL
+    const num = parseFloat(rentAmount);
+    return isNaN(num) ? null : num;
   }
-  return 0;
+  console.log(`[normalizeRentAmount] Unhandled type for rentAmount: ${typeof rentAmount}, value: ${rentAmount}. Returning null.`);
+  return null;
 }
 
 /**
- * Normalizes rent due day to a number
+ * Normalizes rent due day to a number or null
  */
-function normalizeRentDueDay(rentDueDay: any): number {
-  if (typeof rentDueDay === 'number') {
-    return rentDueDay;
-  } else if (typeof rentDueDay === 'string') {
-    return parseInt(rentDueDay, 10) || 1;
+function normalizeRentDueDay(rentDueDay: any): number | null {
+  if (rentDueDay === null || rentDueDay === undefined) return null;
+  if (typeof rentDueDay === 'number') return isNaN(rentDueDay) ? null : rentDueDay;
+  if (typeof rentDueDay === 'string') {
+    if (rentDueDay.trim() === "") return null; // Empty string means NULL
+    const num = parseInt(rentDueDay, 10);
+    return isNaN(num) ? null : num;
   }
-  return 1;
+  console.log(`[normalizeRentDueDay] Unhandled type for rentDueDay: ${typeof rentDueDay}, value: ${rentDueDay}. Returning null.`);
+  return null;
 }
 
 /**
  * Creates or updates tenant-unit relationship
+ * Supporting multiple units per tenant with one primary unit
  */
 async function manageTenantUnitRelationship(
   tenantId: string,
@@ -108,91 +113,217 @@ async function manageTenantUnitRelationship(
   rentDueDay: any | undefined,
   isUpdate: boolean = false
 ): Promise<void> {
-  if (!unitId) return;
+  console.log(`[DEBUG-MANAGE] manageTenantUnitRelationship called with params:`, {
+    tenantId,
+    unitId,
+    rentAmount,
+    rentDueDay,
+    rentAmountType: typeof rentAmount,
+    rentDueDayType: typeof rentDueDay,
+    isUpdate
+  });
+
+  if (!unitId) {
+    console.log(`[DEBUG-MANAGE] No unitId provided, returning early`);
+    return;
+  }
 
   try {
+    console.log(`[DEBUG-MANAGE] Before normalization: rentAmount=${rentAmount}, rentDueDay=${rentDueDay}`);
     const finalRentAmount = normalizeRentAmount(rentAmount);
     const finalRentDueDay = normalizeRentDueDay(rentDueDay);
+    console.log(`[DEBUG-MANAGE] After normalization: finalRentAmount=${finalRentAmount}, finalRentDueDay=${finalRentDueDay}`);
 
     console.log(`[manageTenantUnitRelationship] Final rent values: amount=${finalRentAmount}, due_day=${finalRentDueDay}`);
 
     // For update, check if relationship exists
     if (isUpdate) {
-      const { data: existingRelation, error: fetchRelationError } = await queriesAdminSupabase // Use adminSupabase from tenant.queries
+      console.log(`[DEBUG-MANAGE] Fetching existing tenant-unit relationships for tenant ${tenantId}`);
+      // Get all tenant-unit relationships for this tenant
+      const { data: existingRelations, error: fetchRelationError } = await queriesAdminSupabase
         .from("tenant_units")
         .select("*")
         .eq("tenant_id", tenantId)
-        .eq("is_primary", true)
-        .maybeSingle();
+        .order('is_primary', { ascending: false }); // Get primary units first
 
       if (fetchRelationError) {
-        logger.error(`Error fetching tenant-unit relationship:`, fetchRelationError);
-        console.log(`Error fetching tenant-unit relationship:`, fetchRelationError);
+        logger.error(`Error fetching tenant-unit relationships:`, fetchRelationError);
+        console.log(`[DEBUG-MANAGE] Error fetching tenant-unit relationships:`, fetchRelationError);
         return;
       }
 
-      if (existingRelation) {
-        // Update existing relationship
-        const updateData: any = {};
+      console.log(`[DEBUG-MANAGE] Found ${existingRelations?.length || 0} existing relationships for tenant ${tenantId}`);
+      if (existingRelations?.length) {
+        console.log(`[DEBUG-MANAGE] First relation: ID=${existingRelations[0].id}, unit_id=${existingRelations[0].unit_id}, is_primary=${existingRelations[0].is_primary}`);
+        console.log(`[DEBUG-MANAGE] First relation rent: amount=${existingRelations[0].rent_amount}, due_day=${existingRelations[0].rent_due_day}`);
+      }
 
-        if (unitId !== undefined && unitId !== existingRelation.unit_id) {
-          updateData.unit_id = unitId;
-          console.log(`Changing unit_id from ${existingRelation.unit_id} to ${unitId}`);
-        }
+      // Find primary relationship if exists
+      const primaryRelation = existingRelations?.find(rel => rel.is_primary);
+      console.log(`[DEBUG-MANAGE] Primary relation found: ${primaryRelation ? 'YES' : 'NO'}`);
+      if (primaryRelation) {
+        console.log(`[DEBUG-MANAGE] Primary relation details: ID=${primaryRelation.id}, unit_id=${primaryRelation.unit_id}`);
+        console.log(`[DEBUG-MANAGE] Primary relation rent: amount=${primaryRelation.rent_amount}, due_day=${primaryRelation.rent_due_day}`);
+      }
 
-        if (rentAmount !== undefined) {
-          updateData.rent_amount = finalRentAmount;
-        }
+      // Find if the tenant already has a relation with the unitId we're trying to assign
+      const existingUnitRelation = unitId ? existingRelations?.find(rel => rel.unit_id === unitId) : null;
+      console.log(`[DEBUG-MANAGE] Relation with target unit ${unitId} found: ${existingUnitRelation ? 'YES' : 'NO'}`);
+      if (existingUnitRelation) {
+        console.log(`[DEBUG-MANAGE] Target unit relation details: ID=${existingUnitRelation.id}, is_primary=${existingUnitRelation.is_primary}`);
+      }
 
-        if (rentDueDay !== undefined) {
-          updateData.rent_due_day = finalRentDueDay;
-        }
+      if (primaryRelation) {
+        // Case 1: There's a primary relationship already
 
-        if (Object.keys(updateData).length > 0) {
-          console.log(`Updating tenant_units with data:`, updateData);
+        if (existingUnitRelation && existingUnitRelation.id === primaryRelation.id) {
+          // We're updating the existing primary unit's details
+          const updateData: any = {};
 
-          const { error: updateRelationError, data: updateResult } = await queriesAdminSupabase // Use adminSupabase from tenant.queries
-            .from("tenant_units")
-            .update(updateData)
-            .eq("tenant_id", tenantId)
-            .eq("unit_id", existingRelation.unit_id)
-            .select();
+          if (rentAmount !== undefined) {
+            updateData.rent_amount = finalRentAmount;
+          }
 
-          if (updateRelationError) {
-            logger.error(`Error updating tenant-unit relationship:`, updateRelationError);
-            console.log(`Error updating tenant-unit relationship:`, updateRelationError);
-          } else {
-            console.log(`Successfully updated tenant_units relationship:`, updateResult);
-            await verifyTenantUnitRelationship(tenantId, updateData.unit_id || existingRelation.unit_id);
+          if (rentDueDay !== undefined) {
+            updateData.rent_due_day = finalRentDueDay;
+          }
+
+          if (Object.keys(updateData).length > 0) {
+            console.log(`[manageTenantUnitRelationship] Updating existing primary unit relation: ${JSON.stringify(updateData)}`);
+
+            const { error: updateError } = await queriesAdminSupabase
+              .from("tenant_units")
+              .update(updateData)
+              .eq("tenant_id", tenantId)
+              .eq("unit_id", primaryRelation.unit_id)
+              .select();
+
+            if (updateError) {
+              logger.error(`Error updating primary tenant-unit relationship:`, updateError);
+              console.log(`Error updating primary tenant-unit relationship:`, updateError);
+            } else {
+              console.log(`Successfully updated primary tenant-unit relationship`);
+              if (unitId) {
+                await verifyTenantUnitRelationship(tenantId, unitId);
+              }
+            }
           }
         }
-        return;
+        else if (existingUnitRelation && !existingUnitRelation.is_primary) {
+          // We're promoting a non-primary to primary and demoting the current primary
+          console.log(`Promoting unit ${unitId} to primary and demoting unit ${primaryRelation.unit_id}`);
+
+          // Update the current primary to non-primary
+          const { error: demoteError } = await queriesAdminSupabase
+            .from("tenant_units")
+            .update({ is_primary: false })
+            .eq("tenant_id", tenantId)
+            .eq("unit_id", primaryRelation.unit_id);
+
+          if (demoteError) {
+            logger.error(`Error demoting current primary tenant-unit:`, demoteError);
+            console.log(`Error demoting current primary tenant-unit:`, demoteError);
+            return;
+          }
+
+          // Promote new primary and update rent details
+          const { error: promoteError } = await queriesAdminSupabase
+            .from("tenant_units")
+            .update({
+              is_primary: true,
+              rent_amount: finalRentAmount !== undefined ? finalRentAmount : existingUnitRelation.rent_amount,
+              rent_due_day: finalRentDueDay !== undefined ? finalRentDueDay : existingUnitRelation.rent_due_day
+            })
+            .eq("tenant_id", tenantId)
+            .eq("unit_id", existingUnitRelation.unit_id);
+
+          if (promoteError) {
+            logger.error(`Error promoting new primary tenant-unit:`, promoteError);
+            console.log(`Error promoting new primary tenant-unit:`, promoteError);
+          } else {
+            console.log(`Successfully updated tenant-unit primary relationship`);
+            if (unitId) {
+              await verifyTenantUnitRelationship(tenantId, unitId);
+            }
+          }
+        }
+        else {
+          // We need to add a new unit and make it primary, demoting the current primary
+          console.log(`Adding new primary unit ${unitId} and demoting current primary unit ${primaryRelation.unit_id}`);
+
+          // Demote current primary
+          const { error: demoteError } = await queriesAdminSupabase
+            .from("tenant_units")
+            .update({ is_primary: false })
+            .eq("tenant_id", tenantId)
+            .eq("unit_id", primaryRelation.unit_id);
+
+          if (demoteError) {
+            logger.error(`Error demoting current primary tenant-unit:`, demoteError);
+            console.log(`Error demoting current primary tenant-unit:`, demoteError);
+            return;
+          }
+
+          // Create new primary unit relation
+          const { error: insertError } = await queriesAdminSupabase
+            .from("tenant_units")
+            .insert([{
+              tenant_id: tenantId,
+              unit_id: unitId,
+              is_primary: true,
+              lease_start: new Date().toISOString(),
+              rent_amount: finalRentAmount,
+              rent_due_day: finalRentDueDay
+            }]);
+
+          if (insertError) {
+            logger.error(`Error creating new primary tenant-unit:`, insertError);
+            console.log(`Error creating new primary tenant-unit:`, insertError);
+          } else {
+            console.log(`Successfully created new primary tenant-unit relationship`);
+            if (unitId) {
+              await verifyTenantUnitRelationship(tenantId, unitId);
+            }
+          }
+        }
+      }
+      else {
+        // No primary relationship exists, create one
+        await createNewPrimaryRelationship();
       }
     }
+    else {
+      // New tenant, create primary relationship
+      await createNewPrimaryRelationship();
+    }
 
-    // Create new relationship (for both new tenant and updating tenant with no existing relationship)
-    const tenantUnitData = {
-      tenant_id: tenantId,
-      unit_id: unitId,
-      is_primary: true,
-      lease_start: new Date().toISOString(),
-      rent_amount: finalRentAmount,
-      rent_due_day: finalRentDueDay
-    };
+    // Helper function to create a new primary relationship
+    async function createNewPrimaryRelationship() {
+      const tenantUnitData = {
+        tenant_id: tenantId,
+        unit_id: unitId,
+        is_primary: true,
+        lease_start: new Date().toISOString(),
+        rent_amount: finalRentAmount,
+        rent_due_day: finalRentDueDay
+      };
 
-    console.log(`Creating tenant-unit relationship with data:`, JSON.stringify(tenantUnitData));
+      console.log(`Creating new primary tenant-unit relationship with data:`, JSON.stringify(tenantUnitData));
 
-    const { data: relationshipResult, error: relationError } = await queriesAdminSupabase // Use adminSupabase from tenant.queries
-      .from("tenant_units")
-      .insert([tenantUnitData])
-      .select();
+      const { data: relationshipResult, error: relationError } = await queriesAdminSupabase
+        .from("tenant_units")
+        .insert([tenantUnitData])
+        .select();
 
-    if (relationError) {
-      logger.error(`Error creating tenant-unit relationship:`, relationError);
-      console.log(`Error creating tenant-unit relationship:`, relationError);
-    } else {
-      console.log(`Successfully created tenant-unit relationship:`, relationshipResult);
-      await verifyTenantUnitRelationship(tenantId, unitId);
+      if (relationError) {
+        logger.error(`Error creating tenant-unit relationship:`, relationError);
+        console.log(`Error creating tenant-unit relationship:`, relationError);
+      } else {
+        console.log(`Successfully created tenant-unit relationship:`, relationshipResult);
+        if (unitId) {
+          await verifyTenantUnitRelationship(tenantId, unitId);
+        }
+      }
     }
   } catch (err) {
     console.log(`Exception in manageTenantUnitRelationship:`, err);
@@ -204,17 +335,30 @@ async function manageTenantUnitRelationship(
  * Verify tenant-unit relationship was properly created/updated
  */
 async function verifyTenantUnitRelationship(tenantId: string, unitId: string): Promise<void> {
-  const { data: verifyData, error: verifyError } = await queriesAdminSupabase // Use adminSupabase from tenant.queries
-    .from("tenant_units")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .eq("unit_id", unitId)
-    .single();
+  try {
+    console.log(`[DB-VERIFY] Checking if tenant-unit relationship exists for tenant ${tenantId} and unit ${unitId}`);
 
-  if (verifyError) {
-    console.log(`Error verifying tenant-unit relationship:`, verifyError);
-  } else {
-    console.log(`Verified tenant-unit relationship - contains:`, verifyData);
+    const { data: verifyData, error: verifyError } = await queriesAdminSupabase
+      .from("tenant_units")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .eq("unit_id", unitId)
+      .single();
+
+    if (verifyError) {
+      console.log(`[DB-VERIFY] ERROR - Could not verify tenant-unit relationship:`, verifyError);
+      logger.error(`[DB-VERIFY] ERROR - Could not verify tenant-unit relationship:`, verifyError);
+    } else if (verifyData) {
+      console.log(`[DB-VERIFY] SUCCESS - Tenant-unit relationship verified in database:`, verifyData);
+      logger.info(`[DB-VERIFY] Tenant-unit relationship verified for tenant ${tenantId} and unit ${unitId}`);
+      console.log(`[DB-VERIFY] Rent Amount: ${verifyData.rent_amount}, Rent Due Day: ${verifyData.rent_due_day}`);
+    } else {
+      console.log(`[DB-VERIFY] WARNING - No tenant-unit relationship found for tenant ${tenantId} and unit ${unitId}`);
+      logger.warn(`[DB-VERIFY] No tenant-unit relationship found for tenant ${tenantId} and unit ${unitId}`);
+    }
+  } catch (err) {
+    console.log(`[DB-VERIFY] EXCEPTION in verifyTenantUnitRelationship:`, err);
+    logger.error(`[DB-VERIFY] Exception in verifyTenantUnitRelationship:`, err);
   }
 }
 
@@ -294,7 +438,29 @@ export async function getAllTenants(): Promise<Tenant[]> {
     logger.debug("Entering getAllTenants");
     console.log("Getting all tenants with unit and property info...");
 
-    // Try the fixed query implementation first
+    // Try the enhanced query implementation first (which includes tenant_units data)
+    try {
+      const { fetchTenantsWithTenantUnits } = require('./tenant.queries.enhanced');
+      console.log("Using enhanced tenants query implementation with tenant_units data...");
+      const { data, error } = await fetchTenantsWithTenantUnits();
+
+      if (error) {
+        logger.error(`Error with enhanced query: ${error.message}`, error);
+        console.log(`Error with enhanced query:`, error);
+        throw new Error("Enhanced query failed, falling back to fixed query");
+      }
+
+      if (data) {
+        logger.info(`Enhanced query successful - fetched ${data?.length} tenants with unit, property and rent information`);
+        console.log(`Enhanced query successful - fetched ${data?.length} tenants with unit, property and rent information`);
+        return data || [];
+      }
+    } catch (enhancedQueryError) {
+      logger.error("Enhanced query implementation failed, trying fixed query", enhancedQueryError);
+      console.log("Enhanced query implementation failed, trying fixed query", enhancedQueryError);
+    }
+
+    // Fall back to fixed query if enhanced one fails
     try {
       const { fetchAllTenantsQueryFixed } = require('./tenant.queries.fixed');
       console.log("Using fixed tenants query implementation...");
@@ -316,7 +482,7 @@ export async function getAllTenants(): Promise<Tenant[]> {
       console.log("Fixed query implementation failed, trying original query", fixedQueryError);
     }
 
-    // Fall back to original query if fixed one fails
+    // Fall back to original query if enhanced and fixed ones fail
     const { data, error } = await fetchAllTenantsQuery();
 
     if (error) {
@@ -349,6 +515,54 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
     const cacheBuster = new Date().getTime();
     console.log(`[getTenantById] Using cache buster: ${cacheBuster}`);
 
+    // Try the enhanced query implementation first
+    try {
+      const { fetchTenantByIdEnhanced } = require('./tenant.queries.enhanced');
+      console.log(`[getTenantById] Using enhanced query for tenant ${id}...`);
+      const { data: enhancedData, error: enhancedError } = await fetchTenantByIdEnhanced(id);
+
+      if (enhancedError) {
+        logger.error(`Error with enhanced query for tenant ${id}: ${enhancedError.message}`, enhancedError);
+        console.log(`[getTenantById] Error with enhanced query:`, enhancedError);
+        throw new Error("Enhanced query failed, falling back to original");
+      }
+
+      if (enhancedData) {
+        console.log(`[getTenantById] Enhanced query successful - fetched tenant with unit, property and rent information`);
+        
+        // Map the enhanced data to Tenant type
+        const resultTenant: Tenant = {
+          id: enhancedData.id,
+          first_name: enhancedData.first_name,
+          last_name: enhancedData.last_name,
+          email: enhancedData.email ?? '',
+          phone: enhancedData.phone,
+          created_at: enhancedData.created_at,
+          updated_at: enhancedData.updated_at,
+          unit_id: enhancedData.units?.id,
+          unit_number: enhancedData.units?.unit_number,
+          property_name: enhancedData.units?.properties?.name,
+          rent_amount: enhancedData.rent_amount,
+          rent_due_day: enhancedData.rent_due_day,
+        };
+
+        console.log(`[getTenantById] Mapped enhanced tenant data to return:`, {
+          id: resultTenant.id,
+          name: `${resultTenant.first_name} ${resultTenant.last_name}`,
+          rent_amount: resultTenant.rent_amount,
+          rent_due_day: resultTenant.rent_due_day,
+          unit: resultTenant.unit_number,
+          property: resultTenant.property_name
+        });
+
+        return resultTenant;
+      }
+    } catch (enhancedQueryError) {
+      logger.error("Enhanced query implementation failed, trying original query", enhancedQueryError);
+      console.log("[getTenantById] Enhanced query implementation failed, trying original query", enhancedQueryError);
+    }
+
+    // Fall back to original query if enhanced one fails
     logger.debug(`Executing fetchTenantByIdQuery for id: ${id}`);
     const { data, error } = await fetchTenantByIdQuery(id);
 
@@ -521,11 +735,13 @@ async function createTenantRecord(tenantFields: Partial<Tenant>): Promise<any> {
 
 /**
  * Update an existing tenant
+ * This function handles both tenant basic info and tenant-unit relationship updates
  */
 export async function updateTenant(id: string, tenantData: Partial<Tenant>): Promise<Tenant | null> {
   try {
-    console.log(`[updateTenant] Updating tenant ${id} with data:`, tenantData);
+    console.log(`[updateTenant] Updating tenant ${id} with data:`, JSON.stringify(tenantData, null, 2)); // DEBUG: Stringify for better readability
 
+    // Separate tenant fields from unit-related fields
     const { unit_id, unit_number, rent_amount, rent_due_day, ...tenantFields } = tenantData;
 
     // Validate tenant basic fields
@@ -538,6 +754,7 @@ export async function updateTenant(id: string, tenantData: Partial<Tenant>): Pro
     let validatedRentDueDay = rent_due_day;
 
     if (unit_id !== undefined) {
+      // If unit_id is provided, rent details are required
       const rentValidation = validateRentDetails(rent_amount, rent_due_day, true);
       validatedRentAmount = rentValidation.validatedRentAmount;
       validatedRentDueDay = rentValidation.validatedRentDueDay;
@@ -556,31 +773,71 @@ export async function updateTenant(id: string, tenantData: Partial<Tenant>): Pro
       due_day: validatedRentDueDay,
       due_day_type: typeof validatedRentDueDay
     });
+    console.log(`[updateTenant] DEBUG Values before calling manageTenantUnitRelationship - unit_id: ${unit_id}, validatedRentAmount: ${validatedRentAmount}, validatedRentDueDay: ${validatedRentDueDay}`); // DEBUG log
 
     // Check if tenant exists
     const tenant = await checkTenantExists(id);
     if (!tenant) {
+      console.log(`[updateTenant] Tenant with ID ${id} not found`);
       return null;
     }
 
-    // Update tenant basic info
-    await updateTenantBasicInfo(id, tenantFields);
+    // Update tenant basic info (name, email, phone, etc.)
+    await updateTenantBasicInfo(id, tenantFields);    // Update unit info if unit_number is provided
+    if (unit_number && unit_id) {
+      const unitIdString = String(unit_id);
+      await updateUnitInfo(unitIdString, { unit_number });
+    }    // Update tenant-unit relationship (handle rent amount, due day, and unit assignment)
+    // Update tenant-unit relationship (handle rent amount, due day, and unit assignment)
 
-    // Update unit info
-    if (unit_number) {
-      await updateUnitInfo(unit_id ?? undefined, { unit_number }); // Handle null for unit_id
+    // Determine the unit_id to be used for managing the relationship.
+    // If unit_id is explicitly provided in the payload, use that.
+    // Otherwise, if rent details are being updated, we need to find the current primary unit.
+    let unitIdForMgmt: string | undefined = unit_id !== undefined && unit_id !== null ? String(unit_id) : undefined;
+
+    const hasRentDetailsToUpdate = validatedRentAmount !== undefined || validatedRentDueDay !== undefined;
+
+    if (unitIdForMgmt === undefined && hasRentDetailsToUpdate) {
+      // unit_id not in payload, but rent details are. Find current primary unit.
+      console.log(`[updateTenant] unit_id not provided in payload but rent details are. Fetching current primary unit_id for tenant ${id}.`);
+      const { data: primaryTenantUnitRel, error: primaryUnitError } = await queriesAdminSupabase
+        .from("tenant_units")
+        .select("unit_id") // We only need the unit_id
+        .eq("tenant_id", id)
+        .eq("is_primary", true)
+        .single(); // Assuming a tenant has at most one primary unit
+
+      if (primaryUnitError && primaryUnitError.code !== 'PGRST116') { // PGRST116: 0 rows, meaning no primary unit found
+        logger.error(`[updateTenant] Error fetching primary unit_id for tenant ${id} to update rent details:`, primaryUnitError);
+        // Depending on desired behavior, could throw an error or simply proceed (rent details won't be updated in tenant_units)
+      } else if (primaryTenantUnitRel) {
+        unitIdForMgmt = primaryTenantUnitRel.unit_id;
+        console.log(`[updateTenant] Found primary unit_id ${unitIdForMgmt} for tenant ${id}. Rent details will be applied to this unit.`);
+      } else {
+        // No primary unit found, and unit_id was not in payload.
+        console.warn(`[updateTenant] No primary unit found for tenant ${id}, and unit_id was not in payload. Rent details cannot be applied to tenant_units.`);
+      }
     }
 
-    // Update tenant-unit relationship
-    if (unit_id !== undefined || validatedRentAmount !== undefined || validatedRentDueDay !== undefined) {
-      await manageTenantUnitRelationship(id, unit_id ?? undefined, validatedRentAmount, validatedRentDueDay, true); // Handle null for unit_id
+    // Call manageTenantUnitRelationship if:
+    // 1. A unit_id was explicitly provided in the payload (unit_id !== undefined). This covers assigning to a new unit, or re-affirming/changing details of an existing assigned unit.
+    // 2. Rent details are being updated AND we successfully determined a unit_id for management (unitIdForMgmt is defined).
+    //    This covers updating rent details for the current primary unit when unit_id is not in payload.
+    if ((unit_id !== undefined) || (hasRentDetailsToUpdate && unitIdForMgmt !== undefined)) {
+      // If unit_id was explicitly in the payload (even if null to signify disassociation, though manageTenantUnitRelationship needs a unitId to act),
+      // unitIdForMgmt would have been set to String(unit_id) or undefined if unit_id was null.
+      // If unit_id was NOT in payload but rent details were, unitIdForMgmt is the fetched primary unit_id (if found).
+      // manageTenantUnitRelationship expects a unitId string or undefined. If undefined, it returns early.
+      await manageTenantUnitRelationship(id, unitIdForMgmt, validatedRentAmount, validatedRentDueDay, true);
+    } else if (hasRentDetailsToUpdate && unitIdForMgmt === undefined) {
+      // This specific else-if handles the case where rent details were in the payload,
+      // but no unit_id was provided, AND no primary unit could be found for the tenant.
+      console.warn(`[updateTenant] Rent details were provided for tenant ${id}, but no unit context (unit_id not in payload, and no primary unit found). Rent details will NOT be updated in the tenant_units table.`);
     }
 
     // Wait for database consistency
     console.log(`[updateTenant] Waiting for database consistency...`);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Fetch updated tenant with all information
+    await new Promise(resolve => setTimeout(resolve, 1000));    // Fetch updated tenant with all information (including related unit and property info)
     const updatedTenant = await getTenantInfo(id);
 
     console.log(`[updateTenant] Sending final tenant data back to client:`, {
@@ -590,6 +847,25 @@ export async function updateTenant(id: string, tenantData: Partial<Tenant>): Pro
       rent_amount: updatedTenant.rent_amount,
       rent_due_day: updatedTenant.rent_due_day
     });
+
+    // Additional verification to ensure data consistency
+    if (unitIdForMgmt && hasRentDetailsToUpdate) {
+      console.log(`[FINAL-VERIFY] Doing final verification of tenant-unit relationship...`);
+      await verifyTenantUnitRelationship(id, unitIdForMgmt);
+
+      // Double-check direct query to ensure rent details are persisted
+      const { data: directCheck } = await queriesAdminSupabase
+        .from("tenant_units")
+        .select("rent_amount, rent_due_day")
+        .eq("tenant_id", id)
+        .eq("unit_id", unitIdForMgmt)
+        .single();
+
+      if (directCheck) {
+        console.log(`[FINAL-VERIFY] Database values: rent_amount=${directCheck.rent_amount}, rent_due_day=${directCheck.rent_due_day}`);
+        console.log(`[FINAL-VERIFY] Return values: rent_amount=${updatedTenant.rent_amount}, rent_due_day=${updatedTenant.rent_due_day}`);
+      }
+    }
 
     return updatedTenant;
   } catch (err) {

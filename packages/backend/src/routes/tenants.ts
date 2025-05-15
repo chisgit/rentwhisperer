@@ -1,6 +1,7 @@
 import express from "express";
 import { tenantService } from "../services/tenant.service";
 import { logger } from "../utils/logger";
+import { fixTenantUnitRelationship } from "../utils/tenant-unit-fixer";
 
 const router = express.Router();
 
@@ -15,9 +16,18 @@ router.get("/", async (req, res) => {
     const tenants = await tenantService.getAllTenants();
     res.json(tenants);
   } catch (error) {
-    logger.error("Error getting tenants", error);
-    console.log("Error getting tenants", error);
-    res.status(500).json({ error: (error as Error).message });
+    const clientErrorMessage = error instanceof Error ? error.message : "An unexpected error occurred while fetching tenants.";
+    // Log the full error for server-side diagnostics
+    logger.error("Error getting tenants route handler:", {
+      originalError: error, // Full error object
+      messageForClient: clientErrorMessage, // Message being sent to client
+      requestPath: req.path,
+      requestMethod: req.method
+    });
+    console.error("Error getting tenants (raw):", error); // Keep console.error for raw error
+
+    // Ensure a valid JSON response is sent
+    res.status(500).json({ error: clientErrorMessage });
   }
 });
 
@@ -32,9 +42,15 @@ router.get("/units", async (req, res) => {
     const units = await tenantService.getAllUnits();
     res.json(units);
   } catch (error) {
-    logger.error("Error getting units", error);
-    console.log("Error getting units", error);
-    res.status(500).json({ error: (error as Error).message });
+    const clientErrorMessage = error instanceof Error ? error.message : "An unexpected error occurred while fetching units.";
+    logger.error("Error getting units route handler:", {
+      originalError: error,
+      messageForClient: clientErrorMessage,
+      requestPath: req.path,
+      requestMethod: req.method
+    });
+    console.error("Error getting units (raw):", error);
+    res.status(500).json({ error: clientErrorMessage });
   }
 });
 
@@ -51,9 +67,15 @@ router.get("/:id", async (req, res) => {
     const tenant = await tenantService.getTenantById(id);
     res.json(tenant);
   } catch (error) {
-    logger.error("Error getting tenant by ID", error);
-    console.log("Error getting tenant by ID", error);
-    res.status(500).json({ error: (error as Error).message });
+    const clientErrorMessage = error instanceof Error ? error.message : "An unexpected error occurred while fetching tenant by ID.";
+    logger.error("Error getting tenant by ID route handler:", {
+      originalError: error,
+      messageForClient: clientErrorMessage,
+      requestPath: req.path,
+      requestMethod: req.method
+    });
+    console.error("Error getting tenant by ID (raw):", error);
+    res.status(500).json({ error: clientErrorMessage });
   }
 });
 
@@ -102,16 +124,76 @@ router.patch("/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
-    logger.debug(`PATCH /api/tenants/${id} - Updating tenant`);
+    logger.debug(`[DEBUG-FLOW] PATCH /api/tenants/${id} - Starting tenant update process`);
     console.log(`PATCH /api/tenants/${id} - Updating tenant with data:`, updates);
-    console.log(`PATCH /api/tenants/${id} - Request body raw:`, JSON.stringify(req.body));    // Remove fields that shouldn't be updated directly
+    console.log(`PATCH /api/tenants/${id} - Request body raw:`, JSON.stringify(req.body));
+
+    // Remove fields that shouldn't be updated directly
     const { id: _, created_at, updated_at, tenant_units, ...validUpdates } = updates;
 
     console.log(`Cleaned update data for tenant ${id}:`, validUpdates);
+    console.log(`[DEBUG-FLOW] Data cleaning complete. Processing with validUpdates:`, JSON.stringify(validUpdates));
 
+    // Extract fields for tenant_units table
+    const { rent_amount, rent_due_day, unit_id } = validUpdates;
+
+    console.log(`[DEBUG-FLOW] Extracted fields: rent_amount=${rent_amount}, rent_due_day=${rent_due_day}, unit_id=${unit_id}`);
+    console.log(`[DEBUG-FLOW] Types - rent_amount: ${typeof rent_amount}, rent_due_day: ${typeof rent_due_day}, unit_id: ${typeof unit_id}`);
+    console.log(`[DEBUG-FLOW] Values present? rent_amount: ${rent_amount !== undefined}, rent_due_day: ${rent_due_day !== undefined}, unit_id: ${unit_id !== undefined}`);
+
+    // First update the basic tenant information
+    console.log(`[DEBUG-FLOW] Calling tenantService.updateTenant with id=${id}`);
+    const startTime = Date.now();
     const tenant = await tenantService.updateTenant(id, validUpdates);
-    console.log(`Sending updated tenant back to client:`, tenant);
-    res.json(tenant);
+    console.log(`[DEBUG-FLOW] tenantService.updateTenant completed in ${Date.now() - startTime}ms`);
+    console.log(`[DEBUG-FLOW] Tenant service returned:`, tenant ? `Tenant with id=${tenant.id}` : "null");
+
+    if (tenant) {
+      console.log(`[DEBUG-FLOW] Returned tenant values: rent_amount=${tenant.rent_amount}, rent_due_day=${tenant.rent_due_day}`);
+    }
+
+    // If we have rent_amount, rent_due_day, and unit_id, make sure the tenant_units relationship is updated
+    if (unit_id && (rent_amount !== undefined || rent_due_day !== undefined)) {
+      console.log(`[DEBUG-FLOW] Tenant-unit relationship update needed`);
+      console.log(`Ensuring tenant-unit relationship between tenant ${id} and unit ${unit_id} with rent_amount=${rent_amount}, rent_due_day=${rent_due_day}`);
+
+      // Use our utility to ensure the relationship is properly updated
+      try {
+        const fixStartTime = Date.now();
+        const fixResult = await fixTenantUnitRelationship(
+          id,
+          unit_id,
+          rent_amount !== undefined ? Number(rent_amount) : (tenant && tenant.rent_amount ? Number(tenant.rent_amount) : 0),
+          rent_due_day !== undefined ? Number(rent_due_day) : (tenant && tenant.rent_due_day ? Number(tenant.rent_due_day) : 1)
+        );
+        console.log(`[DEBUG-FLOW] fixTenantUnitRelationship completed in ${Date.now() - fixStartTime}ms`);
+        console.log(`Tenant-unit fix result:`, fixResult);
+
+        if (!fixResult.success) {
+          console.warn(`WARNING: Failed to update tenant-unit relationship: ${fixResult.message}`);
+        } else {
+          console.log(`[DEBUG-FLOW] Tenant-unit relationship successfully updated`);
+        }
+      } catch (fixError) {
+        console.error(`[DEBUG-FLOW] Exception in fixTenantUnitRelationship:`, fixError);
+      }
+    } else {
+      console.log(`[DEBUG-FLOW] No tenant-unit update required. unit_id=${unit_id}, rent_amount=${rent_amount}, rent_due_day=${rent_due_day}`);
+    }
+
+    // Refresh tenant data to get latest values after relationships are updated
+    console.log(`[DEBUG-FLOW] Refreshing tenant data before sending to client`);
+    let refreshedTenant = tenant;
+    try {
+      refreshedTenant = await tenantService.getTenantById(id);
+      console.log(`[DEBUG-FLOW] Refreshed tenant data: rent_amount=${refreshedTenant?.rent_amount}, rent_due_day=${refreshedTenant?.rent_due_day}`);
+    } catch (refreshError) {
+      console.error(`[DEBUG-FLOW] Error refreshing tenant data:`, refreshError);
+    }
+
+    // Return the updated tenant (including fresh values from tenant_units)
+    console.log(`Sending updated tenant back to client:`, refreshedTenant || tenant);
+    res.json(refreshedTenant || tenant);
   } catch (error) {
     logger.error("Error updating tenant", error);
     console.log("Error updating tenant", error);
