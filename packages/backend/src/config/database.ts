@@ -65,6 +65,7 @@ export interface Tenant {
   updated_at?: string;
   // The following fields are not stored in the tenants table but derived through relationships
   unit_id?: string | null; // Derived from tenant_units relationship
+  property_id?: string | null; // Derived from units->properties relationship
   property_name?: string; // Derived from units->properties relationship
   property_address?: string; // Derived from units->properties relationship
   property_city?: string; // Derived from units->properties relationship

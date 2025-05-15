@@ -66,7 +66,7 @@ create table if not exists public.tenant_units (
   id uuid default uuid_generate_v4() primary key,
   tenant_id uuid not null,
   unit_id uuid not null,
-  rent_amount numeric not null,
+  rent_amount text not null,
   rent_due_day integer not null check (rent_due_day >= 1 and rent_due_day <= 31),
   lease_start_date date,
   lease_end_date date,

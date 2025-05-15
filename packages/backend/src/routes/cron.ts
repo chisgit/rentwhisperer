@@ -538,4 +538,27 @@ router.get("/past-due-day", async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Endpoint to check rent status for all tenants
+ * This would be triggered by a daily cron job
+ */
+router.get("/check-rent-status", async (req: Request, res: Response) => {
+  try {
+    logger.debug("Checking rent status for all tenants");
+    console.log("Checking rent status for all tenants");
+
+    const { notPaid, late } = await rentService.checkRentStatus();
+
+    res.json({
+      success: true,
+      notPaid,
+      late,
+    });
+  } catch (error) {
+    logger.error("Error in check-rent-status endpoint", error);
+    console.log("Error in check-rent-status endpoint", error);
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
 export default router;

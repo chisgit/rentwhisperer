@@ -88,7 +88,7 @@ export async function fetchAllTenantsQueryFixed(): Promise<{ data: TenantQueryRe
     }
 
     // Create a map of tenant_id to tenant_unit for quick lookups
-    const tenantUnitMap = {};
+    const tenantUnitMap: { [key: string]: any } = {};
     if (tenantUnits && tenantUnits.length > 0) {
       tenantUnits.forEach(tu => {
         tenantUnitMap[tu.tenant_id] = tu;
@@ -96,7 +96,7 @@ export async function fetchAllTenantsQueryFixed(): Promise<{ data: TenantQueryRe
     }
 
     // Then fetch all units with their properties
-    const { data: unitsData, error: unitsError } = await supabaseAdmin // Renamed to unitsData
+    const { data: unitsData, error: unitsError } = await supabaseAdmin
       .from("units")
       .select(`
         id,
@@ -129,7 +129,7 @@ export async function fetchAllTenantsQueryFixed(): Promise<{ data: TenantQueryRe
     }
 
     // Get tenant-unit relationships
-    const { data: tenantUnitRelations, error: relationError } = await supabaseAdmin // Renamed
+    const { data: tenantUnitRelations, error: relationError } = await supabaseAdmin
       .from("tenant_units")
       .select("tenant_id, unit_id, rent_amount, rent_due_day, lease_start_date, lease_end_date, is_primary"); // Select necessary fields
 
@@ -145,76 +145,81 @@ export async function fetchAllTenantsQueryFixed(): Promise<{ data: TenantQueryRe
     }
 
     // Create a map of unit_id to unit for quick lookups
-    const unitsMap = unitsData.reduce((map: any, unit: any) => {
-      map[unit.id] = unit;
-      return map;
-    }, {});
-
-    // Map tenant_id to its primary tenant_units relation details
-    const primaryTenantUnitDetailsMap = tenantUnitRelations.reduce((map: any, rel: any) => {
-      if (rel.is_primary) { // Consider only the primary unit relationship
-        map[rel.tenant_id] = {
-          unit_id: rel.unit_id,
-          rent_amount: rel.rent_amount,
-          rent_due_day: rel.rent_due_day,
-          lease_start: rel.lease_start_date, // map from lease_start_date
-          lease_end: rel.lease_end_date,     // map from lease_end_date
-        };
-      }
-      return map;
-    }, {});
-
-    // Combine the data    const result = tenants.map((tenant: any) => {
-    // Find primary tenant-unit relationship from our map
-    const primaryRelationDetails = primaryTenantUnitDetailsMap[tenant.id];
-
-    // Also check our direct tenant_units mapping (from the new code we added)
-    const tenantUnitInfo = tenantUnitMap && tenantUnitMap[tenant.id];
-
-    let assembledUnitInfo: TenantQueryResult['units'] = null; // Initialize to null
-
-    // Get rent information from either source (prioritize primaryRelationDetails if available)
-    const rentAmount = primaryRelationDetails?.rent_amount !== undefined ? primaryRelationDetails.rent_amount :
-      (tenantUnitInfo?.rent_amount !== undefined ? tenantUnitInfo.rent_amount : null);
-
-    const rentDueDay = primaryRelationDetails?.rent_due_day !== undefined ? primaryRelationDetails.rent_due_day :
-      (tenantUnitInfo?.rent_due_day !== undefined ? tenantUnitInfo.rent_due_day : null);
-
-    const leaseStart = primaryRelationDetails?.lease_start !== undefined ? primaryRelationDetails.lease_start :
-      (tenantUnitInfo?.lease_start_date !== undefined ? tenantUnitInfo.lease_start_date : null);
-
-    const leaseEnd = primaryRelationDetails?.lease_end !== undefined ? primaryRelationDetails.lease_end :
-      (tenantUnitInfo?.lease_end_date !== undefined ? tenantUnitInfo.lease_end_date : null);
-
-    // Get unit ID from any available source
-    const unitId = tenant.unit_id || (primaryRelationDetails?.unit_id || tenantUnitInfo?.unit_id);
-
-    if (primaryRelationDetails) {
-      const basicUnitInfo = unitsMap[primaryRelationDetails.unit_id];
-      if (basicUnitInfo) {
-        assembledUnitInfo = {
-          ...basicUnitInfo, // Spread basic unit info (id, unit_number, property_id, properties, created_at, updated_at for unit)
-          // Overwrite/add fields from tenant_units relation
-          rent_amount: rentAmount !== null ? Number(rentAmount) : null,
-          rent_due_day: rentDueDay !== null ? Number(rentDueDay) : null,
-          lease_start: leaseStart,
-          lease_end: leaseEnd,
-        };
-      }
+    const unitsMap: { [key: string]: any } = {};
+    if (unitsData) {
+      unitsData.forEach((unit: any) => {
+        unitsMap[unit.id] = unit;
+      });
     }
 
-    return {
-      ...tenant,
-      unit_id: primaryRelationDetails ? primaryRelationDetails.unit_id : null, // This is the ID of the unit itself
-      units: assembledUnitInfo, // This now contains rent details from tenant_units
-    };
-  }) as TenantQueryResult[];
+    // Map tenant_id to its primary tenant_units relation details
+    const primaryTenantUnitDetailsMap: { [key: string]: any } = {};
+    if (tenantUnitRelations) {
+      tenantUnitRelations.forEach((rel: any) => {
+        if (rel.is_primary) { // Consider only the primary unit relationship
+          primaryTenantUnitDetailsMap[rel.tenant_id] = {
+            unit_id: rel.unit_id,
+            rent_amount: rel.rent_amount,
+            rent_due_day: rel.rent_due_day,
+            lease_start: rel.lease_start_date, // map from lease_start_date
+            lease_end: rel.lease_end_date,     // map from lease_end_date
+          };
+        }
+      });
+    }
 
-  console.log(`Fixed query successful, constructed ${result.length} tenants with detailed unit info.`);
-  return { data: result, error: null };
-} catch (error) {
-  logger.error(`Exception in fetchAllTenantsQueryFixed: ${(error as Error).message}`, error);
-  console.log(`Error in fetchAllTenantsQueryFixed:`, error);
-  return { data: null, error };
-}
+    // Combine the data    
+    const result = tenants.map((tenant: any) => {
+      // Find primary tenant-unit relationship from our map
+      const primaryRelationDetails = primaryTenantUnitDetailsMap[tenant.id];
+
+      // Also check our direct tenant_units mapping (from the new code we added)
+      const tenantUnitInfo = tenantUnitMap[tenant.id];
+
+      let assembledUnitInfo: TenantQueryResult['units'] = null; // Initialize to null
+
+      // Get rent information from either source (prioritize primaryRelationDetails if available)
+      const rentAmount = primaryRelationDetails?.rent_amount !== undefined ? primaryRelationDetails.rent_amount :
+        (tenantUnitInfo?.rent_amount !== undefined ? tenantUnitInfo.rent_amount : null);
+
+      const rentDueDay = primaryRelationDetails?.rent_due_day !== undefined ? primaryRelationDetails.rent_due_day :
+        (tenantUnitInfo?.rent_due_day !== undefined ? tenantUnitInfo.rent_due_day : null);
+
+      const leaseStart = primaryRelationDetails?.lease_start !== undefined ? primaryRelationDetails.lease_start :
+        (tenantUnitInfo?.lease_start_date !== undefined ? tenantUnitInfo.lease_start_date : null);
+
+      const leaseEnd = primaryRelationDetails?.lease_end !== undefined ? primaryRelationDetails.lease_end :
+        (tenantUnitInfo?.lease_end_date !== undefined ? tenantUnitInfo.lease_end_date : null);
+
+      // Get unit ID from any available source
+      const unitId = tenant.unit_id || (primaryRelationDetails?.unit_id || tenantUnitInfo?.unit_id);
+
+      if (primaryRelationDetails) {
+        const basicUnitInfo = unitsMap[primaryRelationDetails.unit_id];
+        if (basicUnitInfo) {
+          assembledUnitInfo = {
+            ...basicUnitInfo, // Spread basic unit info (id, unit_number, property_id, properties, created_at, updated_at for unit)
+            // Overwrite/add fields from tenant_units relation
+            rent_amount: rentAmount !== null ? Number(rentAmount) : null,
+            rent_due_day: rentDueDay !== null ? Number(rentDueDay) : null,
+            lease_start: leaseStart,
+            lease_end: leaseEnd,
+          };
+        }
+      }
+
+      return {
+        ...tenant,
+        unit_id: primaryRelationDetails ? primaryRelationDetails.unit_id : null, // This is the ID of the unit itself
+        units: assembledUnitInfo, // This now contains rent details from tenant_units
+      };
+    }) as TenantQueryResult[];
+
+    console.log(`Fixed query successful, constructed ${result.length} tenants with detailed unit info.`);
+    return { data: result, error: null };
+  } catch (error) {
+    logger.error(`Exception in fetchAllTenantsQueryFixed: ${(error as Error).message}`, error);
+    console.log(`Error in fetchAllTenantsQueryFixed:`, error);
+    return { data: null, error };
+  }
 }

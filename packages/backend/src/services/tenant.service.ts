@@ -370,7 +370,12 @@ async function buildFinalTenantData(tenantData: any, tenantId: string): Promise<
     ...tenantData,
     unit_id: undefined,
     unit_number: undefined,
+    property_id: undefined,
     property_name: undefined,
+    property_address: undefined,
+    property_city: undefined,
+    property_province: undefined,
+    property_postal_code: undefined,
     rent_amount: undefined,
     rent_due_day: undefined
   };
@@ -402,7 +407,12 @@ async function buildFinalTenantData(tenantData: any, tenantId: string): Promise<
 
     if (directTenantUnit.units.properties) {
       const properties = directTenantUnit.units.properties;
+      finalTenantData.property_id = properties.id;
       finalTenantData.property_name = properties.name;
+      finalTenantData.property_address = properties.address;
+      finalTenantData.property_city = properties.city;
+      finalTenantData.property_province = properties.province;
+      finalTenantData.property_postal_code = properties.postal_code;
     }
   }
 
@@ -438,11 +448,11 @@ export async function getAllTenants(): Promise<Tenant[]> {
     logger.debug("Entering getAllTenants");
     console.log("Getting all tenants with unit and property info...");
 
-    // Try the enhanced query implementation first (which includes tenant_units data)
     try {
       const { fetchTenantsWithTenantUnits } = require('./tenant.queries.enhanced');
       console.log("Using enhanced tenants query implementation with tenant_units data...");
       const { data, error } = await fetchTenantsWithTenantUnits();
+
 
       if (error) {
         logger.error(`Error with enhanced query: ${error.message}`, error);
@@ -453,7 +463,22 @@ export async function getAllTenants(): Promise<Tenant[]> {
       if (data) {
         logger.info(`Enhanced query successful - fetched ${data?.length} tenants with unit, property and rent information`);
         console.log(`Enhanced query successful - fetched ${data?.length} tenants with unit, property and rent information`);
-        return data || [];
+
+        // Transform the data to include all property fields
+        const transformedData = data.map((tenant: any) => {
+          const properties = tenant.units?.properties;
+          return {
+            ...tenant,
+            property_id: properties?.id,
+            property_name: properties?.name,
+            property_address: properties?.address,
+            property_city: properties?.city,
+            property_province: properties?.province,
+            property_postal_code: properties?.postal_code
+          };
+        });
+
+        return transformedData;
       }
     } catch (enhancedQueryError) {
       logger.error("Enhanced query implementation failed, trying fixed query", enhancedQueryError);
@@ -529,8 +554,9 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
 
       if (enhancedData) {
         console.log(`[getTenantById] Enhanced query successful - fetched tenant with unit, property and rent information`);
-        
-        // Map the enhanced data to Tenant type
+
+        // Map the enhanced data to Tenant type with complete property information
+        const properties = enhancedData.units?.properties;
         const resultTenant: Tenant = {
           id: enhancedData.id,
           first_name: enhancedData.first_name,
@@ -541,7 +567,12 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
           updated_at: enhancedData.updated_at,
           unit_id: enhancedData.units?.id,
           unit_number: enhancedData.units?.unit_number,
-          property_name: enhancedData.units?.properties?.name,
+          property_id: properties?.id,
+          property_name: properties?.name,
+          property_address: properties?.address,
+          property_city: properties?.city,
+          property_province: properties?.province,
+          property_postal_code: properties?.postal_code,
           rent_amount: enhancedData.rent_amount,
           rent_due_day: enhancedData.rent_due_day,
         };
@@ -552,7 +583,8 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
           rent_amount: resultTenant.rent_amount,
           rent_due_day: resultTenant.rent_due_day,
           unit: resultTenant.unit_number,
-          property: resultTenant.property_name
+          property: resultTenant.property_name,
+          property_address: resultTenant.property_address
         });
 
         return resultTenant;
@@ -626,8 +658,13 @@ async function constructTenantResponse(data: any, id: string): Promise<Tenant | 
     created_at: data.created_at,
     updated_at: data.updated_at,
     unit_id: primaryUnit?.id ?? undefined,
+    property_id: properties?.id ?? undefined,
     unit_number: primaryUnit?.unit_number ?? undefined,
     property_name: properties?.name ?? undefined,
+    property_address: properties?.address ?? undefined,
+    property_city: properties?.city ?? undefined,
+    property_province: properties?.province ?? undefined,
+    property_postal_code: properties?.postal_code ?? undefined,
     rent_amount: parsedRentAmount,
     rent_due_day: directTenantUnits?.rent_due_day ?? primaryRelationship?.rent_due_day ?? undefined,
   };
@@ -636,7 +673,9 @@ async function constructTenantResponse(data: any, id: string): Promise<Tenant | 
     id: resultTenant.id,
     name: `${resultTenant.first_name} ${resultTenant.last_name}`,
     rent_amount: resultTenant.rent_amount,
-    rent_due_day: resultTenant.rent_due_day
+    rent_due_day: resultTenant.rent_due_day,
+    unit_number: resultTenant.unit_number,
+    property_name: resultTenant.property_name
   });
 
   return resultTenant;

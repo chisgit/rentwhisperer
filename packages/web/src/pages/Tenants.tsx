@@ -160,8 +160,7 @@ const Tenants = () => {
         <div className="table-container">
           <table className="data-table">
             <thead>
-              <tr>
-                <th>Name</th>
+              <tr>                <th>Name</th>
                 <th>Email</th>
                 <th>Phone</th>
                 <th>Unit</th>
@@ -173,8 +172,7 @@ const Tenants = () => {
             </thead>
             <tbody>
               {tenants.map((tenant) => (
-                <tr key={tenant.id}>
-                  <td>{tenant.first_name} {tenant.last_name}</td>
+                <tr key={tenant.id}>                  <td>{tenant.first_name} {tenant.last_name}</td>
                   <td>{tenant.email}</td>
                   <td>{tenant.phone}</td>
                   <td>{tenant.unit_number}</td>

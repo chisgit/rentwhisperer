@@ -128,9 +128,9 @@ export class RentService {
     const { data: tenantUnits, error: tenantUnitsError } = await supabase
       .from("tenant_units")
       .select(`
-        *,
-        tenants (*),
-        units (*)
+      *,
+      tenants (*),
+      units(*)
       `);
 
     if (tenantUnitsError) {
@@ -281,12 +281,13 @@ export class RentService {
 
     // Get all tenant_units with their tenant and unit information
     const { data: allTenantUnits, error: fetchError } = await supabase
-      .from("tenant_units")
+      .from('tenant_units')
       .select(`
-        *,
-        tenants (*),
-        units (*)
-      `);
+      *,
+      tenants(*),
+      units(*),
+      properties(name)
+      `)
 
     if (fetchError) {
       logger.error("Error fetching tenant_units with joins", fetchError);
@@ -432,8 +433,101 @@ export class RentService {
 
     return createdPayments;
   }
+  /**
+   * Get all tenants with overdue rent
+   */
+  async getTenantsWithOverdueRent(): Promise<{ tenantId: string; tenantName: string; unitId: string; unitNumber: string; propertyName?: string; rentAmount: number; dueDate: string; daysPastDue: number }[]> {
+    const today = new Date();
+    const currentMonth = today.getMonth() + 1;
+    const currentYear = today.getFullYear();
+    const currentMonthFormatted = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
+    const { data: tenantUnits, error: fetchError } = await supabase
+      .from('tenant_units')
+      .select(`
+      *,
+      tenants(*),
+      units(*),
+      properties(name)
+      `)
+    if (fetchError) {
+      logger.error("Error fetching tenant_units with joins", fetchError);
+      console.log("Error fetching tenant_units with joins", fetchError.message);
+      throw new Error("Failed to fetch tenant_units with joins");
+    }
+    if (!tenantUnits || tenantUnits.length === 0) {
+      console.log("DEBUG: No tenant_units found in database with joins");
+      return [];
+    }
+    const overdueTenants: { tenantId: string; tenantName: string; unitId: string; unitNumber: string; propertyName?: string; rentAmount: number; dueDate: string; daysPastDue: number }[] = [];
+    for (const tenantUnit of tenantUnits) {
+      const tenant = tenantUnit.tenants;
+      const unit = tenantUnit.units;
+      if (!tenant || !unit) {
+        console.log(`DEBUG: Skipping tenant_unit ${tenantUnit.tenant_id || tenantUnit.id || 'unknown'} - missing tenant or unit info`);
+        continue;
+      }
+      const dueDayAsNumber = Number(tenantUnit.rent_due_day);
+      if (isNaN(dueDayAsNumber)) {
+        console.log(`DEBUG: Tenant unit ${tenantUnit.id} has invalid rent_due_day: ${tenantUnit.rent_due_day}, skipping`);
+        continue;
+      }
+      const dueDate = new Date(currentYear, currentMonth - 1, dueDayAsNumber);
+      const dueDateFormatted = `${currentYear}-${String(currentMonth).padStart(2, "0")}-${String(dueDayAsNumber).padStart(2, "0")}`;
+      const daysPastDue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 3600 * 24));
+      const { data: existingPayments, error: checkError } = await supabase
+        .from("rent_payments")
+        .select("*")
+        .eq("tenant_id", tenant.id)
+        .eq("unit_id", unit.id)
+        .gte("due_date", `${currentMonthFormatted}-01`)
+        .lte("due_date", `${currentMonthFormatted}-31`);
+      if (checkError) {
+        logger.error(`Error checking existing payments: ${checkError.message}`);
+        console.log(`Error checking existing payments: ${checkError.message}`);
+        continue;
+      } if (!existingPayments || existingPayments.length === 0) {
+        overdueTenants.push({
+          tenantId: tenant.id,
+          tenantName: `${tenant.first_name} ${tenant.last_name}`,
+          unitId: unit.id,
+          unitNumber: unit.unit_number,
+          propertyName: unit.properties?.name,
+          rentAmount: tenantUnit.rent_amount,
+          dueDate: dueDateFormatted,
+          daysPastDue: daysPastDue
+        });
+      }
+    }
+    return overdueTenants;
+  }
 
-  // Removing duplicate generateRentPaymentsForAllTenants method
+  /**
+   * Check rent status for all tenants
+   */
+  async checkRentStatus(): Promise<{ notPaid: any[]; late: any[] }> {
+    const overdueTenants = await this.getTenantsWithOverdueRent();
+    const pendingRentPayments = await this.getPendingRentPayments();
+
+    const notPaid = overdueTenants.map((tenant) => ({
+      tenantId: tenant.tenantId,
+      tenantName: tenant.tenantName,
+      unitId: tenant.unitId,
+      unitNumber: tenant.unitNumber,
+      rentAmount: tenant.rentAmount,
+      dueDate: tenant.dueDate,
+      daysPastDue: tenant.daysPastDue,
+    }));
+
+    const late = pendingRentPayments.filter((payment) => payment.status === "late").map((payment) => ({
+      paymentId: payment.id,
+      tenantId: payment.tenant_id,
+      unitId: payment.unit_id,
+      dueDate: payment.due_date,
+      amount: payment.amount,
+    }));
+
+    return { notPaid, late };
+  }
 }
 
 // Create and export instance for use in other files
