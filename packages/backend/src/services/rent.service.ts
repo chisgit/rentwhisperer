@@ -40,8 +40,7 @@ export class RentService {
 
   /**
    * Get all rent payments for a tenant
-   */
-  async getRentPaymentsByTenantId(tenantId: string): Promise<RentPayment[]> {
+   */  async getRentPaymentsByTenantId(tenantId: string): Promise<RentPayment[]> {
     const { data, error } = await supabase
       .from("rent_payments")
       .select(`
@@ -57,13 +56,31 @@ export class RentService {
       console.log(`Error fetching rent payments for tenant ${tenantId}: ${error.message}`);
       throw new Error(`Failed to fetch rent payments: ${error.message}`);
     }
-    return data || [];
+
+    // Transform the data to include tenant_name and unit_number
+    const formattedData = (data || []).map((payment: any) => {
+      const tenant_name = payment.tenants
+        ? `${payment.tenants.first_name} ${payment.tenants.last_name}`
+        : 'Unknown Tenant';
+
+      const unit_number = payment.units
+        ? payment.units.unit_number
+        : 'Unknown Unit';
+
+      // Return payment with flattened tenant and unit information
+      return {
+        ...payment,
+        tenant_name,
+        unit_number
+      };
+    });
+
+    return formattedData;
   }
 
   /**
    * Get all pending rent payments
-   */
-  async getPendingRentPayments(): Promise<RentPayment[]> {
+   */  async getPendingRentPayments(): Promise<RentPayment[]> {
     const { data, error } = await supabase
       .from("rent_payments")
       .select(`
@@ -78,7 +95,26 @@ export class RentService {
       console.log(`Error fetching pending rent payments: ${error.message}`);
       throw new Error(`Failed to fetch pending rent payments: ${error.message}`);
     }
-    return data || [];
+
+    // Transform the data to include tenant_name and unit_number
+    const formattedData = (data || []).map((payment: any) => {
+      const tenant_name = payment.tenants
+        ? `${payment.tenants.first_name} ${payment.tenants.last_name}`
+        : 'Unknown Tenant';
+
+      const unit_number = payment.units
+        ? payment.units.unit_number
+        : 'Unknown Unit';
+
+      // Return payment with flattened tenant and unit information
+      return {
+        ...payment,
+        tenant_name,
+        unit_number
+      };
+    });
+
+    return formattedData;
   }
 
   /**

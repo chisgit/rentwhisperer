@@ -75,6 +75,28 @@ export interface Tenant {
   rent_amount?: number | null; // Derived from tenant_units relationship
   rent_due_day?: number | null; // Derived from tenant_units relationship
   tenant_units?: TenantUnit[]; // Related tenant-unit relationships
+  units?: { // Nested unit information
+    id: string;
+    unit_number: string;
+    property_id: string;
+    rent_amount: number | null;
+    rent_due_day: number | null;
+    lease_start: string | null;
+    lease_end: string | null;
+    created_at: string;
+    updated_at: string;
+    properties?: {
+      id: string;
+      name: string;
+      address: string;
+      city: string;
+      province: string;
+      postal_code: string;
+      created_at: string;
+      updated_at: string;
+      landlord_id: string;
+    }
+  } | null;
 }
 
 export interface TenantUnit {

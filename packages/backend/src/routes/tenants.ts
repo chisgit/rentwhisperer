@@ -12,9 +12,20 @@ router.get("/", async (req, res) => {
   try {
     logger.debug("GET /api/tenants - Getting all tenants");
     console.log("GET /api/tenants - Getting all tenants");
-
+    console.log("[DEBUG] Tenants route hit");
     const tenants = await tenantService.getAllTenants();
-    res.json(tenants);
+    console.log("[DEBUG] Tenants data:", tenants);
+
+    // Transform the data to ensure unit numbers are properly extracted from nested structure
+    const transformedTenants = tenants.map(tenant => ({
+      ...tenant,
+      unit_number: tenant.units?.unit_number || tenant.unit_number || null
+    }));
+    console.log("[DEBUG] Transformed tenant data with extracted unit numbers:",
+      transformedTenants.map(t => ({ id: t.id, name: `${t.first_name} ${t.last_name}`, unit_number: t.unit_number }))
+    );
+
+    res.json(transformedTenants);
   } catch (error) {
     const clientErrorMessage = error instanceof Error ? error.message : "An unexpected error occurred while fetching tenants.";
     // Log the full error for server-side diagnostics
@@ -64,8 +75,35 @@ router.get("/:id", async (req, res) => {
     logger.debug(`GET /api/tenants/${id} - Getting tenant by ID`);
     console.log(`GET /api/tenants/${id} - Getting tenant by ID`);
 
-    const tenant = await tenantService.getTenantById(id);
-    res.json(tenant);
+    const tenant = await tenantService.getTenantById(id);    // Log the unit information
+    if (tenant) {
+      console.log('Raw tenant data:', tenant);
+      console.log(`Found tenant details:`, {
+        id: tenant.id,
+        name: `${tenant.first_name} ${tenant.last_name}`,
+        unit_info: tenant.units ? {
+          id: tenant.units.id,
+          unit_number: tenant.units.unit_number,
+          property_details: tenant.units.properties ? {
+            name: tenant.units.properties.name,
+            address: tenant.units.properties.address
+          } : null
+        } : 'No unit assigned',
+        rent_amount: tenant.rent_amount,
+        rent_due_day: tenant.rent_due_day
+      });
+
+      // Transform the tenant data for the frontend to include the unit number
+      const transformedTenant = {
+        ...tenant,
+        unit_number: tenant.units?.unit_number || tenant.unit_number || null
+      };
+
+      // Send the transformed data with the unit number properly extracted from units
+      res.json(transformedTenant);
+    } else {
+      res.json(tenant);
+    }
   } catch (error) {
     const clientErrorMessage = error instanceof Error ? error.message : "An unexpected error occurred while fetching tenant by ID.";
     logger.error("Error getting tenant by ID route handler:", {
